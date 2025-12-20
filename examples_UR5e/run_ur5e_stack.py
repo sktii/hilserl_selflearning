@@ -1,6 +1,6 @@
 import numpy as np
-import gym
-import franka_sim
+import gymnasium as gym
+import ur5e_sim
 
 # Compatibility patch for gym 0.26.2 with numpy 2.x
 try:
@@ -11,7 +11,7 @@ except AttributeError:
 def main():
     # Create the environment
     # render_mode="human" allows you to see the simulation if you have a display/GUI
-    env = gym.make("PandaStackCube-v0", render_mode="human")
+    env = gym.make("UR5eStackCube-v0", render_mode="human")
     
     print("Environment initialized. Resetting...")
     obs, info = env.reset()
