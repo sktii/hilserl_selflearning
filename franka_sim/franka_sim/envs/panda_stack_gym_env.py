@@ -605,11 +605,11 @@ class PandaStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             # Ideally we should add a sensor for it.
             # Existing code used random samples.
 
-            # Use data we have
-            final_tcp_pos = np.zeros(7, dtype=np.float32)
-            final_tcp_pos[:3] = tcp_pos
-            # For quaternion, maybe just use identity or mocap
-            final_tcp_pos[3:] = self._data.mocap_quat[0]
+            # [修復] 使用真實的末端姿態，而非 mocap 控制指令
+            site_mat = self._data.site_xmat[self._pinch_site_id].reshape(9)
+            current_quat = np.zeros(4)
+            mujoco.mju_mat2Quat(current_quat, site_mat)
+            final_tcp_pos[3:] = current_quat[[1, 2, 3, 0]]
 
             final_tcp_vel = np.zeros(6, dtype=np.float32)
             final_tcp_vel[:3] = tcp_vel

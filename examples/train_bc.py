@@ -183,7 +183,18 @@ def main(_):
                     if np.linalg.norm(transition['actions']) > 0.0:
                         bc_replay_buffer.insert(transition)
         print(f"bc replay buffer size: {len(bc_replay_buffer)}")
-
+        # [新增] 計算 Normalization Statistics
+        norm_stats = bc_replay_buffer.get_moments()  
+        
+        # [修改] 建立 Agent 時傳入 norm_stats
+        bc_agent: BCAgent = make_bc_agent(
+            seed=FLAGS.seed,
+            sample_obs=env.observation_space.sample(),
+            sample_action=env.action_space.sample(),
+            image_keys=config.image_keys,
+            encoder_type=config.encoder_type,
+            norm_stats=norm_stats,  # <--- 必須加上這個！
+        )
         # learner loop
         print_green("starting learner loop")
         train(
