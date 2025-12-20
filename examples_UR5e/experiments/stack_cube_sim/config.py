@@ -19,9 +19,9 @@ from serl_launcher.networks.reward_classifier import load_classifier_func
 # from experiments.config import DefaultTrainingConfig
 # from experiments.ram_insertion.wrapper import RAMEnv
 from examples.experiments.config import DefaultTrainingConfig
-from examples.experiments.ram_insertion.wrapper import RAMEnv
+# from examples.experiments.ram_insertion.wrapper import RAMEnv # Commented out
 
-from franka_sim.envs.panda_stack_gym_env import PandaStackCubeGymEnv
+from ur5e_sim.envs.ur5e_stack_gym_env import UR5eStackCubeGymEnv
 
 class EnvConfig(DefaultEnvConfig):
     SERVER_URL = "http://127.0.0.2:5000/"
@@ -118,7 +118,7 @@ class TrainConfig(DefaultTrainingConfig):
         #     save_video=save_video,
         #     config=EnvConfig(),
         # )
-        env = PandaStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=8, config=EnvConfig())
+        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=8, config=EnvConfig())
         classifier=False
         # fake_env=True
         # env = GripperCloseEnv(env)
@@ -161,7 +161,7 @@ class KeyBoardIntervention2(gym.ActionWrapper):
         self.left, self.right = False, False
         self.action_indices = action_indices
 
-        self.gripper_state = 'open' # 預設為 open，避免初始誤動作
+        self.gripper_state = 'open'
         self.intervened = False
         self.action_length = 0.3 
         self.current_action = np.array([0, 0, 0, 0, 0, 0])
@@ -171,7 +171,6 @@ class KeyBoardIntervention2(gym.ActionWrapper):
             'j': False, 'k': False, 'l': False, ';': False,
         }
 
-        # 設置 GLFW 鍵盤回調
         if self.env.render_mode == "human" and hasattr(self.env, "_viewer") and self.env._viewer:
              if hasattr(self.env._viewer, "viewer") and self.env._viewer.viewer:
                   if hasattr(self.env._viewer.viewer, "window") and self.env._viewer.viewer.window:
@@ -187,7 +186,7 @@ class KeyBoardIntervention2(gym.ActionWrapper):
             elif key == glfw.KEY_K: self.key_states['k'] = True
             elif key == glfw.KEY_L: 
                 self.key_states['l'] = True
-                self.flag = True # 用來觸發夾爪切換
+                self.flag = True
             elif key == glfw.KEY_SEMICOLON:
                 self.intervened = not self.intervened
                 self.env.intervened = self.intervened
@@ -202,7 +201,6 @@ class KeyBoardIntervention2(gym.ActionWrapper):
             elif key == glfw.KEY_K: self.key_states['k'] = False
             elif key == glfw.KEY_L: self.key_states['l'] = False
 
-        # 計算 xyz 移動量
         self.current_action = [
             int(self.key_states['w']) - int(self.key_states['s']), # x
             int(self.key_states['a']) - int(self.key_states['d']), # y
@@ -212,11 +210,9 @@ class KeyBoardIntervention2(gym.ActionWrapper):
         self.current_action *= self.action_length
 
     def action(self, action: np.ndarray) -> np.ndarray:
-        # 1. 處理人類操作的動作 (expert_a)
         expert_a = self.current_action.copy()
 
         if self.gripper_enabled:
-            # 處理夾爪切換邏輯 (按下 L 鍵切換狀態)
             if self.flag:
                 if self.gripper_state == 'open':
                     self.gripper_state = 'close'
@@ -224,9 +220,6 @@ class KeyBoardIntervention2(gym.ActionWrapper):
                     self.gripper_state = 'open'
                 self.flag = False
             
-            # [修正 1] 根據狀態產生對應動作
-            # close -> -1.0 (閉合)
-            # open  -> +1.0 (張開)
             if self.gripper_state == 'close':
                 gripper_action = np.random.uniform(-1, -0.9, size=(1,)) 
             else:
@@ -234,23 +227,15 @@ class KeyBoardIntervention2(gym.ActionWrapper):
                 
             expert_a = np.concatenate((expert_a, gripper_action), axis=0)
 
-        # 2. 處理 Action Masking (如果有的話)
         if self.action_indices is not None:
             filtered_expert_a = np.zeros_like(expert_a)
             filtered_expert_a[self.action_indices] = expert_a[self.action_indices]
             expert_a = filtered_expert_a
 
-        # 3. 核心邏輯：決定回傳人類動作還是 AI 動作
         if self.intervened:
             return expert_a, True
         else:
-            # [修正 2] 狀態同步邏輯
-            # 當沒介入時，觀察 AI 的動作來更新 self.gripper_state
-            # 這樣當您突然介入時，夾爪狀態才會是正確的
             if self.gripper_enabled:
-                # 假設 action 最後一維是夾爪
-                # < 0 代表 AI 想要關閉
-                # > 0 代表 AI 想要張開
                 if action[-1] < 0:
                     self.gripper_state = 'close'
                 else:
@@ -260,135 +245,6 @@ class KeyBoardIntervention2(gym.ActionWrapper):
 
     def step(self, action):
         new_action, replaced = self.action(action)
-        obs, rew, done, truncated, info = self.env.step(new_action)
-        if replaced:
-            info["intervene_action"] = new_action
-        info["left"] = self.left
-        info["right"] = self.right
-        return obs, rew, done, truncated, info
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        self.gripper_state = 'open'
-        return obs, info
-    def __init__(self, env, action_indices=None):
-        super().__init__(env)
-
-        self.gripper_enabled = True
-        if self.action_space.shape == (6,):
-            self.gripper_enabled = False
-
-        self.left, self.right = False, False
-        self.action_indices = action_indices
-
-        self.gripper_state = 'close'
-        self.intervened = False
-        self.action_length = 0.3
-        self.current_action = np.array([0, 0, 0, 0, 0, 0])  # 分别对应 W, A, S, D 的状态
-        self.flag = False
-        self.key_states = {
-            'w': False,
-            'a': False,
-            's': False,
-            'd': False,
-            'j': False,
-            'k': False,
-            'l': False,
-            ';': False,
-        }
-
-        # 设置 GLFW 键盘回调
-        # Protect against headless/missing viewer
-        if self.env.render_mode == "human" and hasattr(self.env, "_viewer") and self.env._viewer:
-             if hasattr(self.env._viewer, "viewer") and self.env._viewer.viewer:
-                  if hasattr(self.env._viewer.viewer, "window") and self.env._viewer.viewer.window:
-                       glfw.set_key_callback(self.env._viewer.viewer.window, self.glfw_on_key)
-
-    def glfw_on_key(self, window, key, scancode, action, mods):
-        if action == glfw.PRESS:
-            if key == glfw.KEY_W:
-                self.key_states['w'] = True
-            elif key == glfw.KEY_A:
-                self.key_states['a'] = True
-            elif key == glfw.KEY_S:
-                self.key_states['s'] = True
-            elif key == glfw.KEY_D:
-                self.key_states['d'] = True
-            elif key == glfw.KEY_J:
-                self.key_states['j'] = True
-            elif key == glfw.KEY_K:
-                self.key_states['k'] = True
-            elif key == glfw.KEY_L:
-                self.key_states['l'] = True
-                self.flag = True
-            elif key == glfw.KEY_SEMICOLON:
-                self.intervened = not self.intervened
-                self.env.intervened = self.intervened
-                print(f"Intervention toggled: {self.intervened}")
-
-        elif action == glfw.RELEASE:
-            if key == glfw.KEY_W:
-                self.key_states['w'] = False
-            elif key == glfw.KEY_A:
-                self.key_states['a'] = False
-            elif key == glfw.KEY_S:
-                self.key_states['s'] = False
-            elif key == glfw.KEY_D:
-                self.key_states['d'] = False
-            elif key == glfw.KEY_J:
-                self.key_states['j'] = False
-            elif key == glfw.KEY_K:
-                self.key_states['k'] = False
-            elif key == glfw.KEY_L:
-                self.key_states['l'] = False
-        self.current_action = [
-            int(self.key_states['w']) - int(self.key_states['s']), # x
-            int(self.key_states['a']) - int(self.key_states['d']), # y
-            int(self.key_states['j']) - int(self.key_states['k']), # z
-        ]
-        self.current_action = np.array(self.current_action, dtype=np.float64)
-        self.current_action *= self.action_length
-
-    def action(self, action: np.ndarray) -> np.ndarray:
-        expert_a = self.current_action.copy()
-
-        if self.gripper_enabled:
-            if self.flag and self.gripper_state == 'open':  # close gripper
-                # gripper_action = np.random.uniform(-1, -0.9, size=(1,))
-                self.gripper_state = 'close'
-                self.flag = False
-            elif self.flag and self.gripper_state == 'close':  # open gripper
-                # gripper_action = np.random.uniform(0.9, 1, size=(1,))
-                self.gripper_state = 'open'
-                self.flag = False
-            else:
-                # gripper_action = np.zeros((1,))
-                pass
-            # print(self.gripper_state, )
-            gripper_action = np.random.uniform(0.9, 1, size=(1,)) if self.gripper_state == 'close' else np.random.uniform(-1, -0.9, size=(1,))
-            expert_a = np.concatenate((expert_a, gripper_action), axis=0)
-
-        if self.action_indices is not None:
-            filtered_expert_a = np.zeros_like(expert_a)
-            filtered_expert_a[self.action_indices] = expert_a[self.action_indices]
-            expert_a = filtered_expert_a
-            
-        if self.intervened:
-            return expert_a, True
-        else:
-            # [新增] 同步邏輯：在未介入時，根據 AI 的動作更新內部夾爪狀態
-            if self.gripper_enabled:
-                # 假設 action 最後一維是夾爪 (>0 代表閉合, <0 代表張開)
-                if action[-1] > 0:
-                    self.gripper_state = 'close'
-                else:
-                    self.gripper_state = 'open'
-            
-            return action, False
-
-    def step(self, action):
-        new_action, replaced = self.action(action)
-
         obs, rew, done, truncated, info = self.env.step(new_action)
         if replaced:
             info["intervene_action"] = new_action
