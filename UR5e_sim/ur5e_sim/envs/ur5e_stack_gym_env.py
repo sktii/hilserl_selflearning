@@ -174,7 +174,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
             if self.render_mode == "human":
                 self._viewer.render(self.render_mode)
-            self._start_monitor_server()
+            # self._start_monitor_server() # Disable monitor server to prevent lag
         except ImportError:
             print("Warning: Could not initialize MujocoRenderer. Rendering might be disabled.")
             self._viewer = None
@@ -432,9 +432,9 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         block_vel = self._data.jnt("block").qvel[:3]
         is_static = np.linalg.norm(block_vel) < 0.05
 
-        if self.env_step % 10 == 0:
-             # Debug print to diagnose success failure
-             print(f"XY: {float(xy_dist):.3f} (<0.04?) | Z: {float(block_pos[2]):.3f} > {float(target_pos[2] + self._target_cube_z + self._block_z * 0.9):.3f}? | Grip: {float(gripper_val):.2f} (<0.1?) | Static: {float(np.linalg.norm(block_vel)):.3f} (<0.05?)")
+        # if self.env_step % 10 == 0:
+        #      # Debug print to diagnose success failure
+        #      print(f"XY: {float(xy_dist):.3f} (<0.04?) | Z: {float(block_pos[2]):.3f} > {float(target_pos[2] + self._target_cube_z + self._block_z * 0.9):.3f}? | Grip: {float(gripper_val):.2f} (<0.1?) | Static: {float(np.linalg.norm(block_vel)):.3f} (<0.05?)")
 
         return xy_success and z_success and gripper_open and is_static
 
