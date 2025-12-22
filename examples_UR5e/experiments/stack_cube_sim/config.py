@@ -2,13 +2,14 @@ import os
 import jax
 import jax.numpy as jnp
 import numpy as np
+import glfw
+import gymnasium as gym
 
 from franka_env.envs.wrappers import (
     Quat2EulerWrapper,
     SpacemouseIntervention,
     MultiCameraBinaryRewardClassifierWrapper,
     GripperCloseEnv,
-    # KeyBoardIntervention2
 )
 from franka_env.envs.relative_env import RelativeFrame
 from franka_env.envs.franka_env import DefaultEnvConfig
@@ -16,15 +17,13 @@ from serl_launcher.wrappers.serl_obs_wrappers import SERLObsWrapper
 from serl_launcher.wrappers.chunking import ChunkingWrapper
 from serl_launcher.networks.reward_classifier import load_classifier_func
 
-# from experiments.config import DefaultTrainingConfig
-# from experiments.ram_insertion.wrapper import RAMEnv
 from examples.experiments.config import DefaultTrainingConfig
 # from examples.experiments.ram_insertion.wrapper import RAMEnv # Commented out
 
 from ur5e_sim.envs.ur5e_stack_gym_env import UR5eStackCubeGymEnv
 
 class EnvConfig(DefaultEnvConfig):
-    SERVER_URL = "http://127.0.0.2:5000/"
+    SERVER_URL = "http://127.0.0.1:5000/"
     REALSENSE_CAMERAS = {
         "left": {
             "serial_number": "127122270146",
@@ -100,56 +99,6 @@ class EnvConfig(DefaultEnvConfig):
     }
 
 
-class TrainConfig(DefaultTrainingConfig):
-    image_keys = ["left", "wrist", "right"]
-    classifier_keys = ["left", "wrist", "right"]
-    proprio_keys = ["tcp_pose", "tcp_vel", "tcp_force", "tcp_torque", "gripper_pose"]
-    buffer_period = 1000
-    checkpoint_period = 5000
-    steps_per_update = 50
-    encoder_type = "resnet-pretrained"
-    # setup_mode = "single-arm-fixed-gripper"
-    setup_mode = "single-arm-learned-gripper"
-    replay_buffer_capacity = 10000
-
-    def get_environment(self, fake_env=False, save_video=False, classifier=False, render_mode="human"):
-        # env = RAMEnv(
-        #     fake_env=fake_env,
-        #     save_video=save_video,
-        #     config=EnvConfig(),
-        # )
-        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=8, config=EnvConfig())
-        classifier=False
-        # fake_env=True
-        # env = GripperCloseEnv(env)
-        if not fake_env:
-            # env = SpacemouseIntervention(env)
-            env = KeyBoardIntervention2(env)
-            pass
-        # env = RelativeFrame(env)
-        # env = Quat2EulerWrapper(env)
-        env = SERLObsWrapper(env, proprio_keys=self.proprio_keys)
-        env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
-        if classifier:
-            classifier = load_classifier_func(
-                key=jax.random.PRNGKey(0),
-                sample=env.observation_space.sample(),
-                image_keys=self.classifier_keys,
-                checkpoint_path=os.path.abspath("classifier_ckpt/"),
-            )
-
-            def reward_func(obs):
-                sigmoid = lambda x: 1 / (1 + jnp.exp(-x))
-                # added check for z position to further robustify classifier, but should work without as well
-                return int(sigmoid(classifier(obs)) > 0.85 and obs['state'][0, 6] > 0.04)
-
-            env = MultiCameraBinaryRewardClassifierWrapper(env, reward_func)
-        return env
-
-
-
-import glfw
-import gymnasium as gym # Changed from import gym to gymnasium
 class KeyBoardIntervention2(gym.ActionWrapper):
     def __init__(self, env, action_indices=None):
         super().__init__(env)
@@ -161,16 +110,18 @@ class KeyBoardIntervention2(gym.ActionWrapper):
         self.left, self.right = False, False
         self.action_indices = action_indices
 
+        # Initialize gripper state to 'open'
         self.gripper_state = 'open'
         self.intervened = False
-        self.action_length = 0.3 
-        self.current_action = np.array([0, 0, 0, 0, 0, 0])
+        self.action_length = 0.3
+        self.current_action = np.array([0, 0, 0, 0, 0, 0], dtype=np.float64)
         self.flag = False
         self.key_states = {
             'w': False, 'a': False, 's': False, 'd': False,
             'j': False, 'k': False, 'l': False, ';': False,
         }
 
+        # Setup GLFW key callback
         if self.env.render_mode == "human" and hasattr(self.env, "_viewer") and self.env._viewer:
              if hasattr(self.env._viewer, "viewer") and self.env._viewer.viewer:
                   if hasattr(self.env._viewer.viewer, "window") and self.env._viewer.viewer.window:
@@ -186,7 +137,7 @@ class KeyBoardIntervention2(gym.ActionWrapper):
             elif key == glfw.KEY_K: self.key_states['k'] = True
             elif key == glfw.KEY_L: 
                 self.key_states['l'] = True
-                self.flag = True
+                self.flag = True # Trigger gripper state toggle
             elif key == glfw.KEY_SEMICOLON:
                 self.intervened = not self.intervened
                 self.env.intervened = self.intervened
@@ -201,18 +152,19 @@ class KeyBoardIntervention2(gym.ActionWrapper):
             elif key == glfw.KEY_K: self.key_states['k'] = False
             elif key == glfw.KEY_L: self.key_states['l'] = False
 
-        self.current_action = [
+        # Update movement action vector (x, y, z)
+        self.current_action[:3] = [
             int(self.key_states['w']) - int(self.key_states['s']), # x
             int(self.key_states['a']) - int(self.key_states['d']), # y
             int(self.key_states['j']) - int(self.key_states['k']), # z
         ]
-        self.current_action = np.array(self.current_action, dtype=np.float64)
-        self.current_action *= self.action_length
+        self.current_action[:3] *= self.action_length
 
     def action(self, action: np.ndarray) -> np.ndarray:
         expert_a = self.current_action.copy()
 
         if self.gripper_enabled:
+            # Handle gripper toggle logic
             if self.flag:
                 if self.gripper_state == 'open':
                     self.gripper_state = 'close'
@@ -220,23 +172,33 @@ class KeyBoardIntervention2(gym.ActionWrapper):
                     self.gripper_state = 'open'
                 self.flag = False
             
+            # Generate gripper action based on state
+            # Close -> Positive (0.9 to 1)
+            # Open  -> Negative (-1 to -0.9)
             if self.gripper_state == 'close':
-                gripper_action = np.random.uniform(-1, -0.9, size=(1,)) 
-            else:
                 gripper_action = np.random.uniform(0.9, 1, size=(1,))
-                
-            expert_a = np.concatenate((expert_a, gripper_action), axis=0)
+            else:
+                gripper_action = np.random.uniform(-1, -0.9, size=(1,))
 
+            # Combine [x, y, z, (rot...), gripper]
+            expert_a = np.concatenate((expert_a[:3], gripper_action), axis=0)
+
+        # Action Masking
         if self.action_indices is not None:
             filtered_expert_a = np.zeros_like(expert_a)
             filtered_expert_a[self.action_indices] = expert_a[self.action_indices]
             expert_a = filtered_expert_a
 
+        # Determine which action to return
         if self.intervened:
             return expert_a, True
         else:
+            # Sync state: observe AI action to update self.gripper_state
             if self.gripper_enabled:
-                if action[-1] < 0:
+                # Assume action last dim is gripper
+                # > 0 means AI wants to close
+                # < 0 means AI wants to open
+                if action[-1] > 0:
                     self.gripper_state = 'close'
                 else:
                     self.gripper_state = 'open'
@@ -256,3 +218,54 @@ class KeyBoardIntervention2(gym.ActionWrapper):
         obs, info = self.env.reset(**kwargs)
         self.gripper_state = 'open'
         return obs, info
+
+
+class TrainConfig(DefaultTrainingConfig):
+    image_keys = ["left", "wrist", "right"]
+    classifier_keys = ["left", "wrist", "right"]
+    proprio_keys = ["tcp_pose", "tcp_vel", "tcp_force", "tcp_torque", "gripper_pose"]
+    buffer_period = 1000
+    checkpoint_period = 5000
+    steps_per_update = 50
+    encoder_type = "resnet-pretrained"
+    # setup_mode = "single-arm-fixed-gripper"
+    setup_mode = "single-arm-learned-gripper"
+    replay_buffer_capacity = 10000
+
+    def get_environment(self, fake_env=False, save_video=False, classifier=False, render_mode="human"):
+        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=8, config=EnvConfig())
+
+        # NOTE: Classifier is force disabled here based on previous code snippets?
+        # But 'classifier' arg comes in.
+        # Ideally we respect the arg, but user wants to fix lag.
+        # I will use the arg but add warmup.
+        # classifier=False # This line was overriding the arg in previous snippet!
+
+        if not fake_env:
+            env = KeyBoardIntervention2(env)
+            pass
+
+        env = SERLObsWrapper(env, proprio_keys=self.proprio_keys)
+        env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
+
+        if classifier:
+            classifier_func = load_classifier_func(
+                key=jax.random.PRNGKey(0),
+                sample=env.observation_space.sample(),
+                image_keys=self.classifier_keys,
+                checkpoint_path=os.path.abspath("classifier_ckpt/"),
+            )
+
+            # Warmup to prevent lag during interaction
+            print("Compiling reward classifier...")
+            dummy_obs = env.observation_space.sample()
+            # Ensure dummy obs has correct keys for classifier
+            classifier_func(dummy_obs)
+            print("Classifier compiled.")
+
+            def reward_func(obs):
+                sigmoid = lambda x: 1 / (1 + jnp.exp(-x))
+                return int(sigmoid(classifier_func(obs)) > 0.85 and obs['state'][0, 6] > 0.04)
+
+            env = MultiCameraBinaryRewardClassifierWrapper(env, reward_func)
+        return env
