@@ -434,7 +434,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
         if self.env_step % 10 == 0:
              # Debug print to diagnose success failure
-             print(f"XY: {xy_dist:.3f} (<0.04?) | Z: {block_pos[2]:.3f} > {target_pos[2] + self._target_cube_z + self._block_z * 0.9:.3f}? | Grip: {gripper_val:.2f} (<0.1?) | Static: {np.linalg.norm(block_vel):.3f} (<0.05?)")
+             print(f"XY: {float(xy_dist):.3f} (<0.04?) | Z: {float(block_pos[2]):.3f} > {float(target_pos[2] + self._target_cube_z + self._block_z * 0.9):.3f}? | Grip: {float(gripper_val):.2f} (<0.1?) | Static: {float(np.linalg.norm(block_vel)):.3f} (<0.05?)")
 
         return xy_success and z_success and gripper_open and is_static
 
