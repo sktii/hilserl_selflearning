@@ -110,6 +110,14 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         self._target_cube_geom_id = self._model.geom("target_geom").id
         self._target_cube_z = self._model.geom("target_geom").size[2]
 
+        # Pre-cache pillar IDs for fast collision checking
+        self._pillar_geom_ids = []
+        for i in range(1, 3):
+            id_cyl = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, f"pillar_cyl_{i}")
+            if id_cyl != -1: self._pillar_geom_ids.append(id_cyl)
+            id_box = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, f"pillar_box_{i}")
+            if id_box != -1: self._pillar_geom_ids.append(id_box)
+
         if self.image_obs:
             self.observation_space = gymnasium_spaces.Dict(
                 {
@@ -406,15 +414,23 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
     def _check_collision(self):
         for i in range(self._data.ncon):
             contact = self._data.contact[i]
-            geom1_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
-            geom2_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2)
 
-            is_g1_pillar = geom1_name and "pillar" in geom1_name
-            is_g2_pillar = geom2_name and "pillar" in geom2_name
+            # Check if either geom is a pillar by ID
+            g1 = contact.geom1
+            g2 = contact.geom2
+
+            is_g1_pillar = g1 in self._pillar_geom_ids
+            is_g2_pillar = g2 in self._pillar_geom_ids
 
             if is_g1_pillar or is_g2_pillar:
-                other = geom2_name if is_g1_pillar else geom1_name
-                if other is None or other not in ["block", "floor", "target_geom", "target"]:
+                # If pillar is involved, check what it hit
+                other_id = g2 if is_g1_pillar else g1
+                other_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, other_id)
+
+                # If hitting allowed objects, ignore. Allowed: block, floor, target_geom, target
+                # Note: "target" might be body name? Collision uses geom names.
+                # Assuming "block" is geom name.
+                if other_name not in ["block", "floor", "target_geom", "target"]:
                     return True
         return False
 
