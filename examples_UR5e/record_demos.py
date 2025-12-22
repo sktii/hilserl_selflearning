@@ -12,7 +12,6 @@ import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.1"
 
-import gc
 from tqdm import tqdm
 import numpy as np
 import copy
@@ -50,8 +49,7 @@ def main(_):
         returns += rew
         if "intervene_action" in info:
             actions = info["intervene_action"]
-        transition = copy.deepcopy(
-            dict(
+        transition = dict(
                 observations=obs,
                 actions=actions,
                 next_observations=next_obs,
@@ -60,13 +58,10 @@ def main(_):
                 dones=done,
                 infos=info,
             )
-        )
         trajectory.append(transition)
         
-        if step_count % 10 == 0:
-            pbar.set_description(f"Return: {returns}")
         if step_count % 50 == 0:
-            gc.collect()
+            pbar.set_description(f"Return: {returns}")
 
         obs = next_obs
         if done:
