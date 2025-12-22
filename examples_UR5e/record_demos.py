@@ -7,6 +7,12 @@
 import sys
 sys.path.insert(0, '../../../')
 import os
+
+# Prevent JAX from hogging GPU memory, allowing MuJoCo EGL to run smoothly
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.1"
+
+import gc
 from tqdm import tqdm
 import numpy as np
 import copy
@@ -36,7 +42,9 @@ def main(_):
     trajectory = []
     returns = 0
     
+    step_count = 0
     while success_count < success_needed:
+        step_count += 1
         actions = np.zeros(env.action_space.sample().shape) 
         next_obs, rew, done, truncated, info = env.step(actions)
         returns += rew
@@ -55,7 +63,10 @@ def main(_):
         )
         trajectory.append(transition)
         
-        pbar.set_description(f"Return: {returns}")
+        if step_count % 10 == 0:
+            pbar.set_description(f"Return: {returns}")
+        if step_count % 50 == 0:
+            gc.collect()
 
         obs = next_obs
         if done:
