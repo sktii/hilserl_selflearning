@@ -265,7 +265,10 @@ class TrainConfig(DefaultTrainingConfig):
 
             def reward_func(obs):
                 sigmoid = lambda x: 1 / (1 + jnp.exp(-x))
-                return int(sigmoid(classifier_func(obs)) > 0.85 and obs['state'][0, 6] > 0.04)
+                pred = sigmoid(classifier_func(obs))
+                if hasattr(pred, 'shape') and len(pred.shape) > 0:
+                    pred = pred.flatten()[0]
+                return int(float(pred) > 0.85 and obs['state'][0, 6] > 0.04)
 
             env = MultiCameraBinaryRewardClassifierWrapper(env, reward_func)
         return env
