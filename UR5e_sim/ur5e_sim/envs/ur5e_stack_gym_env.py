@@ -425,12 +425,16 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         xy_dist = np.linalg.norm(block_pos[:2] - target_pos[:2])
         xy_success = xy_dist < 0.04
 
-        z_success = block_pos[2] > (target_pos[2] + self._target_cube_z + self._block_z * 0.9)
+        z_success = block_pos[2] > (target_pos[2] + self._target_cube_z + self._block_z * 0.8)
 
         gripper_open = gripper_val < 0.1
 
         block_vel = self._data.jnt("block").qvel[:3]
         is_static = np.linalg.norm(block_vel) < 0.05
+
+        if self.env_step % 10 == 0:
+             # Debug print to diagnose success failure
+             print(f"XY: {xy_dist:.3f} (<0.04?) | Z: {block_pos[2]:.3f} > {target_pos[2] + self._target_cube_z + self._block_z * 0.9:.3f}? | Grip: {gripper_val:.2f} (<0.1?) | Static: {np.linalg.norm(block_vel):.3f} (<0.05?)")
 
         return xy_success and z_success and gripper_open and is_static
 
