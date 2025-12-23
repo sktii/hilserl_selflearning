@@ -33,13 +33,13 @@ class RobotMonitorApp:
         for i, (name, init_val) in enumerate(self.vars_to_monitor):
             row = tk.Frame(self.frame, bg="#f0f0f0")
             row.pack(fill="x", pady=2)
-            
+
             lbl_name = tk.Label(row, text=f"{name}:", width=10, anchor="w", font=("Consolas", 12), bg="#f0f0f0")
             lbl_name.pack(side="left")
-            
+
             lbl_val = tk.Label(row, text=init_val, width=15, anchor="e", font=("Consolas", 12, "bold"), bg="white", fg="blue")
             lbl_val.pack(side="right")
-            
+
             self.labels[name] = lbl_val
 
         # 狀態燈
@@ -55,8 +55,8 @@ class RobotMonitorApp:
 
         try:
             # 模擬 franka_env.py 的請求方式
-            response = requests.post(f"{SERVER_URL}/getstate", json={}, timeout=0.2)
-            
+            response = requests.post(f"{SERVER_URL}/getstate", json={}, timeout=1.0)
+
             if response.status_code == 200:
                 data = response.json()
                 pose = data.get("pose", [0]*7) # [x, y, z, qx, qy, qz, qw]
@@ -66,7 +66,7 @@ class RobotMonitorApp:
                 self.labels["X"].config(text=f"{pose[0]:.4f}")
                 self.labels["Y"].config(text=f"{pose[1]:.4f}")
                 self.labels["Z"].config(text=f"{pose[2]:.4f}")
-                
+
                 self.labels["RX (qx)"].config(text=f"{pose[3]:.4f}")
                 self.labels["RY (qy)"].config(text=f"{pose[4]:.4f}")
                 self.labels["RZ (qz)"].config(text=f"{pose[5]:.4f}")
@@ -77,17 +77,19 @@ class RobotMonitorApp:
                 g_text = f"{gripper:.3f}"
                 if gripper > 0.8: g_text += " (OPEN)"
                 elif gripper < 0.1: g_text += " (CLOSED)"
-                
+
                 self.labels["Gripper"].config(text=g_text)
-                
+
                 self.status_label.config(text="● Connected (Updating)", fg="green")
             else:
                 self.status_label.config(text=f"Server Error: {response.status_code}", fg="red")
 
         except requests.exceptions.ConnectionError:
             self.status_label.config(text="● Disconnected (Is Robot Server running?)", fg="red")
+            print("Dashboard Disconnected: Connection refused")
         except Exception as e:
             self.status_label.config(text=f"Error: {str(e)}", fg="red")
+            print(f"Dashboard Error: {str(e)}")
 
         # 每 100ms 更新一次 (10Hz)
         self.root.after(100, self.update_data)
