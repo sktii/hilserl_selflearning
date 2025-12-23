@@ -37,7 +37,8 @@ def main(_):
     transitions = []
     success_count = 0
     success_needed = FLAGS.successes_needed
-    pbar = tqdm(total=success_needed)
+    # pbar = tqdm(total=success_needed) # Disable tqdm to prevent IO lag
+    print(f"Collecting {success_needed} successful demos...")
     trajectory = []
     returns = 0
     
@@ -60,8 +61,8 @@ def main(_):
             )
         trajectory.append(transition)
         
-        if step_count % 50 == 0:
-            pbar.set_description(f"Return: {returns}")
+        if step_count % 100 == 0:
+            print(f"Step {step_count}, Return: {returns:.2f}")
 
         obs = next_obs
         if done:
@@ -69,7 +70,7 @@ def main(_):
                 for transition in trajectory:
                     transitions.append(copy.deepcopy(transition))
                 success_count += 1
-                pbar.update(1)
+                print(f"Success! {success_count}/{success_needed}")
             trajectory = []
             returns = 0
             obs, info = env.reset()

@@ -8,10 +8,8 @@ import numpy as np
 from gym import spaces as gym_spaces # Keep gym spaces for legacy compat
 from gymnasium import spaces as gymnasium_spaces # Use gymnasium spaces for env spaces
 import time
-import cv2
 import threading
 import logging
-from flask import Flask, jsonify
 
 try:
     import mujoco_py
@@ -279,51 +277,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                 self._model.geom_pos[body_id][2] = hz
                 self._model.geom_rgba[body_id] = [0.0, 0.0, 0.0, 1.0]
 
-    def _start_monitor_server(self):
-        try:
-            app = Flask("SimMonitor")
-            log = logging.getLogger('werkzeug')
-            log.setLevel(logging.ERROR)
-
-            @app.route('/getstate', methods=['POST'])
-            def get_state():
-                try:
-                    pos = self._data.sensor("2f85/pinch_pos").data.tolist()
-                except:
-                    pos = self._data.site_xpos[self._pinch_site_id].tolist()
-
-                site_mat = self._data.site_xmat[self._pinch_site_id].reshape(9)
-                quat_mujoco = np.zeros(4)
-                mujoco.mju_mat2Quat(quat_mujoco, site_mat)
-
-                pose = [
-                    pos[0], pos[1], pos[2],
-                    quat_mujoco[1], quat_mujoco[2], quat_mujoco[3], quat_mujoco[0]
-                ]
-
-                g = self._data.ctrl[self._gripper_ctrl_id] / 255.0
-
-                return jsonify({
-                    "pose": pose,
-                    "gripper_pos": g,
-                    "vel": [0]*6,
-                    "force": [0]*3,
-                    "torque": [0]*3
-                })
-
-            def run_app():
-                try:
-                    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-                except Exception as e:
-                    print(f"[SimMonitor] Port 5000 被佔用或無法啟動: {e}")
-
-            t = threading.Thread(target=run_app)
-            t.daemon = True
-            t.start()
-            print("[SimMonitor] 監控 Server 已啟動於 http://127.0.0.1:5000")
-
-        except Exception as e:
-            print(f"[SimMonitor] 初始化失敗: {e}")
+    # Monitor server removed to prevent lag
 
     def step(
         self, action: np.ndarray
@@ -390,6 +344,8 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         if self.render_mode == "human" and self._viewer:
             self._viewer.render(self.render_mode)
             dt = time.time() - start_time
+            if dt > 0.15:
+                print(f"Slow step: {dt:.3f}s")
             # Always throttle the loop to target Hz to prevent unthrottled execution and GC overload
             time.sleep(max(0, (1.0 / self.hz) - dt))
 
