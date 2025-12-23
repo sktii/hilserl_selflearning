@@ -233,7 +233,7 @@ class TrainConfig(DefaultTrainingConfig):
     replay_buffer_capacity = 10000
 
     def get_environment(self, fake_env=False, save_video=False, classifier=False, render_mode="human"):
-        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=8, config=EnvConfig())
+        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=15, config=EnvConfig())
 
         # NOTE: Classifier is force disabled here based on previous code snippets?
         # But 'classifier' arg comes in.

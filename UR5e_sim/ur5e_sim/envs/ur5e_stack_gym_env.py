@@ -337,8 +337,8 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         if self.render_mode == "human" and self._viewer:
             self._viewer.render(self.render_mode)
             dt = time.time() - start_time
-            # Always throttle the loop to target Hz to prevent unthrottled execution and GC overload
-            time.sleep(max(0, (1.0 / self.hz) - dt))
+            if self.intervened:
+                time.sleep(max(0, (1.0 / self.hz) - dt))
 
         collision = self._check_collision()
         if collision:
