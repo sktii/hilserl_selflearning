@@ -10,6 +10,7 @@ from gymnasium import spaces as gymnasium_spaces # Use gymnasium spaces for env 
 import time
 import threading
 import logging
+from flask import Flask, jsonify
 
 try:
     import mujoco_py
@@ -180,13 +181,15 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
             if self.render_mode == "human":
                 self._viewer.render(self.render_mode)
-            # self._start_monitor_server() # Disable monitor server to prevent lag
         except ImportError:
             print("Warning: Could not initialize MujocoRenderer. Rendering might be disabled.")
             self._viewer = None
         except Exception as e:
              print(f"Warning: Failed to initialize MujocoRenderer: {e}")
              self._viewer = None
+
+        # Start monitor server regardless of renderer status
+        self._start_monitor_server()
 
     def reset(
         self, seed=None, **kwargs
@@ -270,7 +273,62 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                 self._model.geom_pos[body_id][2] = hz
                 self._model.geom_rgba[body_id] = [0.0, 0.0, 0.0, 1.0]
 
-    # Monitor server removed to prevent lag
+    def _start_monitor_server(self):
+        """Start a background HTTP Server to allow dashboard to read data"""
+        try:
+            app = Flask("SimMonitor")
+            # Disable verbose Flask logging
+            log = logging.getLogger('werkzeug')
+            log.setLevel(logging.ERROR)
+
+            @app.route('/getstate', methods=['POST'])
+            def get_state():
+                # 1. Get Position
+                # Stack env usually has this sensor, fallback to site_xpos if error
+                try:
+                    pos = self._data.sensor("2f85/pinch_pos").data.tolist()
+                except:
+                     # Fallback: grab site position directly
+                    pos = self._data.site_xpos[self._pinch_site_id].tolist()
+
+                # 2. Get Rotation (Quat) [w, x, y, z] -> [x, y, z, w]
+                # MuJoCo site_xmat is a 9-element rotation matrix
+                site_mat = self._data.site_xmat[self._pinch_site_id].reshape(9)
+                quat_mujoco = np.zeros(4)
+                mujoco.mju_mat2Quat(quat_mujoco, site_mat)
+
+                # Dashboard expects [x, y, z, qx, qy, qz, qw]
+                pose = [
+                    pos[0], pos[1], pos[2],      # x, y, z
+                    quat_mujoco[1], quat_mujoco[2], quat_mujoco[3], quat_mujoco[0] # qx, qy, qz, qw
+                ]
+
+                # 3. Get Gripper State (0~1)
+                g = self._data.ctrl[self._gripper_ctrl_id] / 255.0
+
+                return jsonify({
+                    "pose": pose,
+                    "gripper_pos": g,
+                    "vel": [0]*6,
+                    "force": [0]*3,
+                    "torque": [0]*3
+                })
+
+            def run_app():
+                try:
+                    # Attempt to open Port 5000
+                    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+                except Exception as e:
+                    print(f"[SimMonitor] Port 5000 occupied or cannot start: {e}")
+
+            # Run in background
+            t = threading.Thread(target=run_app)
+            t.daemon = True
+            t.start()
+            print("[SimMonitor] Monitor Server started at http://127.0.0.1:5000")
+
+        except Exception as e:
+            print(f"[SimMonitor] Initialization failed: {e}")
 
     def step(
         self, action: np.ndarray
