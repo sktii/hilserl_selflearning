@@ -190,6 +190,13 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
              print(f"Warning: Failed to initialize MujocoRenderer: {e}")
              self._viewer = None
 
+        # Separate renderer for offscreen cameras to avoid EGL/GLFW context switching conflicts
+        try:
+            self._offscreen_renderer = mujoco.Renderer(self._model, height=render_spec.height, width=render_spec.width)
+        except Exception as e:
+            print(f"Warning: Failed to initialize offscreen mujoco.Renderer: {e}")
+            self._offscreen_renderer = None
+
     def reset(
         self, seed=None, **kwargs
     ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
@@ -455,6 +462,19 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         return xy_success and z_success and gripper_open and is_static
 
     def render(self):
+        # Use offscreen renderer for observations if available
+        if self._offscreen_renderer is not None:
+            try:
+                rendered_frames = []
+                for cam_id in self.camera_id:
+                    self._offscreen_renderer.update_scene(self._data, camera=cam_id)
+                    rendered_frames.append(self._offscreen_renderer.render())
+                return rendered_frames
+            except Exception as e:
+                print(f"Offscreen render failed: {e}")
+                return []
+
+        # Fallback to viewer if offscreen renderer failed (legacy behavior)
         if self._viewer is None:
              return []
 
@@ -467,6 +487,12 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             return rendered_frames
         except Exception:
              return []
+
+    def close(self):
+        if hasattr(self, '_offscreen_renderer') and self._offscreen_renderer is not None:
+            self._offscreen_renderer.close()
+            self._offscreen_renderer = None
+        super().close()
 
     def _compute_observation(self) -> dict:
         obs = {}
