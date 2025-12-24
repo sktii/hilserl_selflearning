@@ -3,9 +3,17 @@ from tkinter import ttk
 import requests
 import time
 import threading
+import argparse  # 新增: 參數解析庫
 
-# 根據你的設定，預設是這個地址
-SERVER_URL = "http://127.0.0.1:5000"
+# --- 新增這段參數解析代碼 ---
+parser = argparse.ArgumentParser(description="Robot Monitor Dashboard")
+parser.add_argument("--port", type=int, default=5000, help="Port of the robot server (default: 5000)")
+args = parser.parse_args()
+
+# 使用參數指定的埠號
+SERVER_URL = f"http://127.0.0.1:{args.port}"
+# Default ports to try. Priority: 5001 (Actor), then 5000 (Learner/Default)
+TARGET_PORTS = [5001, 5000]
 
 class RobotMonitorApp:
     def __init__(self, root):
@@ -47,17 +55,26 @@ class RobotMonitorApp:
         self.status_label.pack(side="bottom", pady=5)
 
         self.running = True
+        self.current_port_index = 0
+        self.connected_port = None
         self.update_data()
 
     def update_data(self):
         if not self.running:
             return
 
+        # Try to connect to the current target port
+        target_port = self.connected_port if self.connected_port else TARGET_PORTS[self.current_port_index]
+        server_url = f"http://127.0.0.1:{target_port}"
+
         try:
             # 模擬 franka_env.py 的請求方式
-            response = requests.post(f"{SERVER_URL}/getstate", json={}, timeout=1.0)
+            response = requests.post(f"{server_url}/getstate", json={}, timeout=1.0)
 
             if response.status_code == 200:
+                # Connection successful
+                self.connected_port = target_port
+
                 data = response.json()
                 pose = data.get("pose", [0]*7) # [x, y, z, qx, qy, qz, qw]
                 gripper = data.get("gripper_pos", 0)
@@ -80,13 +97,21 @@ class RobotMonitorApp:
 
                 self.labels["Gripper"].config(text=g_text)
 
-                self.status_label.config(text="● Connected (Updating)", fg="green")
+                self.status_label.config(text=f"● Connected to Port {target_port}", fg="green")
             else:
-                self.status_label.config(text=f"Server Error: {response.status_code}", fg="red")
+                self.status_label.config(text=f"Server Error (Port {target_port}): {response.status_code}", fg="red")
+                # If server error, maybe try next port?
+                self.connected_port = None
+                self.current_port_index = (self.current_port_index + 1) % len(TARGET_PORTS)
 
         except requests.exceptions.ConnectionError:
-            self.status_label.config(text="● Disconnected (Is Robot Server running?)", fg="red")
-            print("Dashboard Disconnected: Connection refused")
+            self.status_label.config(text=f"● Connecting to Port {target_port}...", fg="orange")
+            # print(f"Dashboard: Connection refused on port {target_port}")
+
+            # If failed, switch to next port for next attempt
+            self.connected_port = None
+            self.current_port_index = (self.current_port_index + 1) % len(TARGET_PORTS)
+
         except Exception as e:
             self.status_label.config(text=f"Error: {str(e)}", fg="red")
             print(f"Dashboard Error: {str(e)}")

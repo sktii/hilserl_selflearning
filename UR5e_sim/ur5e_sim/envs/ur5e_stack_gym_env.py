@@ -275,6 +275,13 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
     def _start_monitor_server(self):
         """Start a background HTTP Server to allow dashboard to read data"""
+        import socket  # 確保導入 socket
+
+        # 檢查埠號是否被佔用的輔助函式
+        def is_port_in_use(port):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(('localhost', port)) == 0
+
         try:
             app = Flask("SimMonitor")
             # Disable verbose Flask logging
@@ -284,7 +291,6 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             @app.route('/getstate', methods=['POST'])
             def get_state():
                 # 1. Get Position
-                # Stack env usually has this sensor, fallback to site_xpos if error
                 try:
                     pos = self._data.sensor("2f85/pinch_pos").data.tolist()
                 except:
@@ -292,7 +298,6 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                     pos = self._data.site_xpos[self._pinch_site_id].tolist()
 
                 # 2. Get Rotation (Quat) [w, x, y, z] -> [x, y, z, w]
-                # MuJoCo site_xmat is a 9-element rotation matrix
                 site_mat = self._data.site_xmat[self._pinch_site_id].reshape(9)
                 quat_mujoco = np.zeros(4)
                 mujoco.mju_mat2Quat(quat_mujoco, site_mat)
@@ -315,21 +320,28 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                 })
 
             def run_app():
+                # 自動尋找可用埠號 (從 5000 開始嘗試)
+                target_port = 5000
+                while is_port_in_use(target_port):
+                    print(f"[SimMonitor] Port {target_port} is busy, trying next...")
+                    target_port += 1
+                    if target_port > 5010: # 避免無限迴圈
+                        print("[SimMonitor] No available ports found (5000-5010).")
+                        return
+
+                print(f"[SimMonitor] Monitor Server started at http://127.0.0.1:{target_port}")
                 try:
-                    # Attempt to open Port 5000
-                    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+                    app.run(host='0.0.0.0', port=target_port, debug=False, use_reloader=False)
                 except Exception as e:
-                    print(f"[SimMonitor] Port 5000 occupied or cannot start: {e}")
+                    print(f"[SimMonitor] Server crashed: {e}")
 
             # Run in background
             t = threading.Thread(target=run_app)
             t.daemon = True
             t.start()
-            print("[SimMonitor] Monitor Server started at http://127.0.0.1:5000")
 
         except Exception as e:
             print(f"[SimMonitor] Initialization failed: {e}")
-
     def step(
         self, action: np.ndarray
     ) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict[str, Any]]:
@@ -394,12 +406,13 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
         if self.render_mode == "human" and self._viewer:
             self._viewer.render(self.render_mode)
-            dt = time.time() - start_time
-            if self.intervened:
-                time.sleep(max(0, (1.0 / self.hz) - dt))
-            else:
-                # Yield GIL to allow monitor server to run
-                time.sleep(0.001)
+
+        dt = time.time() - start_time
+        if self.intervened:
+            time.sleep(max(0, (1.0 / self.hz) - dt))
+        else:
+            # Yield GIL to allow monitor server to run
+            time.sleep(0.001)
 
         collision = self._check_collision()
         if collision:
