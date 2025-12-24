@@ -18,12 +18,12 @@ from serl_launcher.wrappers.chunking import ChunkingWrapper
 from serl_launcher.networks.reward_classifier import load_classifier_func
 
 from examples.experiments.config import DefaultTrainingConfig
-from examples.experiments.ram_insertion.wrapper import RAMEnv
+# from examples.experiments.ram_insertion.wrapper import RAMEnv # Commented out
 
 from franka_sim.envs.panda_stack_gym_env import PandaStackCubeGymEnv
 
 class EnvConfig(DefaultEnvConfig):
-    SERVER_URL = "http://127.0.0.1:5000/" # 建議改為 localhost 或 127.0.0.1 以確保穩定連線
+    SERVER_URL = "http://127.0.0.1:5000/"
     REALSENSE_CAMERAS = {
         "left": {
             "serial_number": "127122270146",
@@ -110,7 +110,7 @@ class KeyBoardIntervention2(gym.ActionWrapper):
         self.left, self.right = False, False
         self.action_indices = action_indices
 
-        # 預設狀態設為 open，避免一開始就夾住東西
+        # 預設狀態設為 open
         self.gripper_state = 'open' 
         self.intervened = False
         self.action_length = 0.3
@@ -165,7 +165,7 @@ class KeyBoardIntervention2(gym.ActionWrapper):
         expert_a = self.current_action.copy()
 
         if self.gripper_enabled:
-            # 處理夾爪切換邏輯 (按下 L 鍵切換)
+            # 處理夾爪切換邏輯
             if self.flag:
                 if self.gripper_state == 'open':
                     self.gripper_state = 'close'
@@ -173,36 +173,26 @@ class KeyBoardIntervention2(gym.ActionWrapper):
                     self.gripper_state = 'open'
                 self.flag = False
             
-            # 根據狀態產生對應動作: 
-            # Close -> 正值 (0.9 ~ 1.0) -> 增加控制量 -> 閉合
-            # Open  -> 負值 (-1.0 ~ -0.9) -> 減少控制量 -> 張開
+            # Close -> 正值; Open -> 負值
             if self.gripper_state == 'close':
                 gripper_action = np.random.uniform(0.9, 1, size=(1,)) 
             else:
                 gripper_action = np.random.uniform(-1, -0.9, size=(1,))
             
-            # 組合 [x, y, z, (rot...), gripper]
-            # 注意: self.current_action 初始只有 6 維 (含旋轉)，這裡假設只需要前 3 維 + 夾爪
-            # 如果您的環境 action space 是 4 維 (x,y,z,g)，這裡要裁切
-            # 但 env 定義通常是 (x,y,z, g) 或 (x,y,z, r,p,y, g)
-            # 為了保險，這裡取 expert_a 的前3維 (xyz) 加上夾爪
             expert_a = np.concatenate((expert_a[:3], gripper_action), axis=0)
 
-        # 2. 處理 Action Masking
+        # 2. Action Masking
         if self.action_indices is not None:
             filtered_expert_a = np.zeros_like(expert_a)
             filtered_expert_a[self.action_indices] = expert_a[self.action_indices]
             expert_a = filtered_expert_a
 
-        # 3. 決定返回哪個動作
+        # 3. 決定返回動作
         if self.intervened:
             return expert_a, True
         else:
-            # 同步狀態：觀察 AI 的動作來更新 self.gripper_state
+            # 同步狀態
             if self.gripper_enabled:
-                # 假設 action 最後一維是夾爪
-                # > 0 代表 AI 想要閉合
-                # < 0 代表 AI 想要張開
                 if action[-1] > 0:
                     self.gripper_state = 'close'
                 else:
@@ -238,21 +228,13 @@ class TrainConfig(DefaultTrainingConfig):
     replay_buffer_capacity = 10000
 
     def get_environment(self, fake_env=False, save_video=False, classifier=False, render_mode="human"):
-        # env = RAMEnv(
-        #     fake_env=fake_env,
-        #     save_video=save_video,
-        #     config=EnvConfig(),
-        # )
         env = PandaStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=8, config=EnvConfig())
         classifier=False
         
         if not fake_env:
-            # env = SpacemouseIntervention(env)
             env = KeyBoardIntervention2(env)
             pass
         
-        # env = RelativeFrame(env)
-        # env = Quat2EulerWrapper(env)
         env = SERLObsWrapper(env, proprio_keys=self.proprio_keys)
         env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
         
@@ -266,7 +248,6 @@ class TrainConfig(DefaultTrainingConfig):
 
             def reward_func(obs):
                 sigmoid = lambda x: 1 / (1 + jnp.exp(-x))
-                # added check for z position to further robustify classifier
                 return int(sigmoid(classifier(obs)) > 0.85 and obs['state'][0, 6] > 0.04)
 
             env = MultiCameraBinaryRewardClassifierWrapper(env, reward_func)

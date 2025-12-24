@@ -7,6 +7,11 @@
 import sys
 sys.path.insert(0, '../../../')
 import os
+
+# Prevent JAX from hogging GPU memory, allowing MuJoCo EGL to run smoothly
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.1"
+
 from tqdm import tqdm
 import numpy as np
 import copy
@@ -24,7 +29,8 @@ flags.DEFINE_integer("successes_needed", 20, "Number of successful demos to coll
 def main(_):
     assert FLAGS.exp_name in CONFIG_MAPPING, 'Experiment folder not found.'
     config = CONFIG_MAPPING[FLAGS.exp_name]()
-    env = config.get_environment(fake_env=False, save_video=False, classifier=True)
+    # Disable classifier to rely on simulation ground truth success for demo recording
+    env = config.get_environment(fake_env=False, save_video=False, classifier=False)
     
     obs, info = env.reset()
     print("Reset done")
@@ -35,7 +41,9 @@ def main(_):
     trajectory = []
     returns = 0
     
+    step_count = 0
     while success_count < success_needed:
+        step_count += 1
         actions = np.zeros(env.action_space.sample().shape) 
         next_obs, rew, done, truncated, info = env.step(actions)
         returns += rew
