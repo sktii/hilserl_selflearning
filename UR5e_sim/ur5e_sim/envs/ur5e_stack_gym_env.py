@@ -418,8 +418,8 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         # 如果運算太慢導致 sleep_time 為 0，則強制讓出 GIL 一點點時間
         if sleep_time > 0:
             time.sleep(sleep_time)
-        else:
-            time.sleep(0.002) 
+        # else:
+        #     time.sleep(0.002) 
         # ------------------------------------------------
         
         collision = self._check_collision()
