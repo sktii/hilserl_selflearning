@@ -231,7 +231,7 @@ class TrainConfig(DefaultTrainingConfig):
     proprio_keys = ["tcp_pose", "tcp_vel", "tcp_force", "tcp_torque", "gripper_pose"]
     buffer_period = 1000
     checkpoint_period = 5000
-    steps_per_update = 50
+    steps_per_update = 100
     encoder_type = "resnet-pretrained"
     # setup_mode = "single-arm-fixed-gripper"
     setup_mode = "single-arm-learned-gripper"
