@@ -412,6 +412,7 @@ def learner(rng, agent, replay_buffer, demo_buffer, wandb_logger=None):
             checkpoints.save_checkpoint(
                 os.path.abspath(FLAGS.checkpoint_path), agent.state, step=step, keep=100
             )
+        time.sleep(0.01)
 
 
 ##############################################################################
