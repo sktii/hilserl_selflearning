@@ -9,6 +9,7 @@ import sys
 sys.path.insert(0, '../../../')
 import threading
 import glob
+import queue
 import time
 import jax
 import jax.numpy as jnp
@@ -166,6 +167,36 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
     intervention_steps = 0
 
     pbar = tqdm.tqdm(range(start_step, config.max_steps), dynamic_ncols=True)
+    
+    transitions = []
+    demo_transitions = []
+
+    # === [FIX START] 新增：啟動一個專門的存檔執行緒 ===
+    save_queue = queue.Queue()
+
+    def save_worker():
+        while True:
+            # 從 Queue 拿出資料 (data, filepath)
+            data, filepath = save_queue.get()
+            try:
+                # 執行原本的存檔邏輯
+                with open(filepath, "wb") as f:
+                    pkl.dump(data, f)
+            except Exception as e:
+                print(f"Error saving file {filepath}: {e}")
+            finally:
+                # 標記任務完成，釋放記憶體
+                del data 
+                save_queue.task_done()
+
+    # 啟動 Worker 執行緒
+    worker_thread = threading.Thread(target=save_worker, daemon=True)
+    worker_thread.start()
+    # === [FIX END] =================================
+    
+    obs, _ = env.reset()
+    done = False
+
     for step in pbar:
         timer.tick("total")
 
@@ -239,20 +270,19 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
             if not os.path.exists(buffer_path): os.makedirs(buffer_path)
             if not os.path.exists(demo_buffer_path): os.makedirs(demo_buffer_path)
 
-            # 定義存檔函數
-            def save_data(data, path):
-                with open(path, "wb") as f:
-                    pkl.dump(data, f)
-
-            # [FIX] 使用 Thread 背景存檔，避免卡住主迴圈
-            # 注意：這裡將列表 reference 傳給 thread，並將主變數指向新列表
-            threading.Thread(target=save_data, args=(transitions, os.path.join(buffer_path, f"transitions_{step}.pkl"))).start()
-            transitions = [] # 立即重置主列表
+            if len(transitions) > 0:
+                # 放入 Queue: (資料列表, 檔案路徑)
+                save_queue.put((transitions, os.path.join(buffer_path, f"transitions_{step}.pkl")))
+                transitions = [] # 重置主列表，指向新的記憶體位置
 
             if len(demo_transitions) > 0:
-                threading.Thread(target=save_data, args=(demo_transitions, os.path.join(demo_buffer_path, f"transitions_{step}.pkl"))).start()
-                demo_transitions = []
-
+                save_queue.put((demo_transitions, os.path.join(demo_buffer_path, f"transitions_{step}.pkl")))
+                demo_transitions = [] # 重置
+            
+            # 選項：檢查 Queue 是否堆積過多，如果堆積太多可以印出警告
+            if save_queue.qsize() > 2:
+                print(f"Warning: Save queue is backing up! Size: {save_queue.qsize()}")
+            # === [FIX END] ============================================
         timer.tock("total")
 
         if step % config.log_period == 0:
