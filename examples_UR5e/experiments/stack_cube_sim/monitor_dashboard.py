@@ -3,17 +3,18 @@ from tkinter import ttk
 import requests
 import time
 import threading
-import argparse  # 新增: 參數解析庫
+import argparse
 
-# --- 新增這段參數解析代碼 ---
+# 解析命令列參數
 parser = argparse.ArgumentParser(description="Robot Monitor Dashboard")
 parser.add_argument("--port", type=int, default=5000, help="Port of the robot server (default: 5000)")
 args = parser.parse_args()
 
-# 使用參數指定的埠號
-SERVER_URL = f"http://127.0.0.1:{args.port}"
-# Default ports to try. Priority: 5001 (Actor), then 5000 (Learner/Default)
-TARGET_PORTS = [5001, 5000]
+# 預設嘗試的埠號列表。優先嘗試 5001 (Actor)，然後是 5000 (Learner)
+# 如果命令行有指定特定的 port，也會被考慮進去
+TARGET_PORTS = [args.port, 5001, 5000]
+# 去除重複並保持順序
+TARGET_PORTS = list(dict.fromkeys(TARGET_PORTS))
 
 class RobotMonitorApp:
     def __init__(self, root):
@@ -22,6 +23,10 @@ class RobotMonitorApp:
         self.root.geometry("400x350")
         self.root.configure(bg="#f0f0f0")
 
+        # --- 修正 1: 刪除了這裡原本會報錯的 self.status_label.pack(...) ---
+
+        self.session = requests.Session()
+        
         # 標題
         title_label = tk.Label(root, text="Robot State Monitor", font=("Arial", 16, "bold"), bg="#f0f0f0")
         title_label.pack(pady=10)
@@ -50,7 +55,7 @@ class RobotMonitorApp:
 
             self.labels[name] = lbl_val
 
-        # 狀態燈
+        # 狀態燈 (現在才建立，這是正確的位置)
         self.status_label = tk.Label(root, text="Connecting...", fg="gray", bg="#f0f0f0", font=("Arial", 10))
         self.status_label.pack(side="bottom", pady=5)
 
@@ -63,16 +68,21 @@ class RobotMonitorApp:
         if not self.running:
             return
 
-        # Try to connect to the current target port
-        target_port = self.connected_port if self.connected_port else TARGET_PORTS[self.current_port_index]
+        # 決定要連哪一個 Port
+        if self.connected_port:
+            target_port = self.connected_port
+        else:
+            target_port = TARGET_PORTS[self.current_port_index]
+
+        # 建立當前的 URL
         server_url = f"http://127.0.0.1:{target_port}"
 
         try:
-            # 模擬 franka_env.py 的請求方式
-            response = requests.post(f"{server_url}/getstate", json={}, timeout=1.0)
-
+            # --- 修正 2: 這裡必須使用小寫的 server_url，否則永遠只會連到 5000 ---
+            response = self.session.post(f"{server_url}/getstate", json={}, timeout=0.2)
+            
             if response.status_code == 200:
-                # Connection successful
+                # 連接成功
                 self.connected_port = target_port
 
                 data = response.json()
@@ -90,7 +100,6 @@ class RobotMonitorApp:
                 self.labels["RW (qw)"].config(text=f"{pose[6]:.4f}")
 
                 # 更新介面 (Gripper)
-                # 簡單判斷開合狀態文字
                 g_text = f"{gripper:.3f}"
                 if gripper > 0.8: g_text += " (OPEN)"
                 elif gripper < 0.1: g_text += " (CLOSED)"
@@ -99,28 +108,27 @@ class RobotMonitorApp:
 
                 self.status_label.config(text=f"● Connected to Port {target_port}", fg="green")
             else:
-                self.status_label.config(text=f"Server Error (Port {target_port}): {response.status_code}", fg="red")
-                # If server error, maybe try next port?
-                self.connected_port = None
+                self.status_label.config(text=f"Server Error: {response.status_code}", fg="red")
+
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            # 如果連線失敗且尚未鎖定 Port，則嘗試下一個 Port
+            if not self.connected_port:
+                self.status_label.config(text=f"Trying Port {target_port}...", fg="orange")
                 self.current_port_index = (self.current_port_index + 1) % len(TARGET_PORTS)
-
-        except requests.exceptions.ConnectionError:
-            self.status_label.config(text=f"● Connecting to Port {target_port}...", fg="orange")
-            # print(f"Dashboard: Connection refused on port {target_port}")
-
-            # If failed, switch to next port for next attempt
-            self.connected_port = None
-            self.current_port_index = (self.current_port_index + 1) % len(TARGET_PORTS)
-
+            else:
+                # 已經連上但突然斷線
+                self.status_label.config(text="● Disconnected (Retrying...)", fg="red")
+        
         except Exception as e:
             self.status_label.config(text=f"Error: {str(e)}", fg="red")
             print(f"Dashboard Error: {str(e)}")
 
-        # 每 100ms 更新一次 (10Hz)
-        self.root.after(100, self.update_data)
+        # 每 50ms 更新一次 (20Hz)
+        self.root.after(50, self.update_data)
 
     def on_closing(self):
         self.running = False
+        self.session.close()
         self.root.destroy()
 
 if __name__ == "__main__":

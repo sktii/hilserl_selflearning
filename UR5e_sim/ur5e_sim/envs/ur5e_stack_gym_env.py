@@ -412,7 +412,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             time.sleep(max(0, (1.0 / self.hz) - dt))
         else:
             # Yield GIL to allow monitor server to run
-            time.sleep(0.001)
+            time.sleep(max(0.01, (1.0 / self.hz) - dt))
 
         collision = self._check_collision()
         if collision:
