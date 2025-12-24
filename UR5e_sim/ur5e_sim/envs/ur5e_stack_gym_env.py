@@ -394,12 +394,13 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
         if self.render_mode == "human" and self._viewer:
             self._viewer.render(self.render_mode)
-            dt = time.time() - start_time
-            if self.intervened:
-                time.sleep(max(0, (1.0 / self.hz) - dt))
-            else:
-                # Yield GIL to allow monitor server to run
-                time.sleep(0.001)
+
+        dt = time.time() - start_time
+        if self.intervened:
+            time.sleep(max(0, (1.0 / self.hz) - dt))
+        else:
+            # Yield GIL to allow monitor server to run
+            time.sleep(0.001)
 
         collision = self._check_collision()
         if collision:
