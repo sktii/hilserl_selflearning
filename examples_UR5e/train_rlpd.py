@@ -172,7 +172,7 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
     demo_transitions = []
 
     # === [FIX START] 新增：啟動一個專門的存檔執行緒 ===
-    save_queue = queue.Queue()
+    save_queue = queue.Queue(maxsize=3)
 
     def save_worker():
         while True:
@@ -271,13 +271,21 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
             if not os.path.exists(demo_buffer_path): os.makedirs(demo_buffer_path)
 
             if len(transitions) > 0:
-                # 放入 Queue: (資料列表, 檔案路徑)
-                save_queue.put((transitions, os.path.join(buffer_path, f"transitions_{step}.pkl")))
-                transitions = [] # 重置主列表，指向新的記憶體位置
-
+                if not save_queue.full():
+                    # 傳送 copy 或讓 transitions 指向新 list，確保資料安全
+                    save_queue.put((transitions, os.path.join(buffer_path, f"transitions_{step}.pkl")))
+                else:
+                    # 硬碟來不及寫，放棄這次存檔，避免記憶體爆炸
+                    print(f"[Warning] Disk too slow! Skipping save at step {step} to prevent lag.")
+                
+                transitions = [] # 無論有無存檔，都要清空記憶體！
             if len(demo_transitions) > 0:
-                save_queue.put((demo_transitions, os.path.join(demo_buffer_path, f"transitions_{step}.pkl")))
-                demo_transitions = [] # 重置
+                if not save_queue.full():
+                    save_queue.put((demo_transitions, os.path.join(demo_buffer_path, f"transitions_{step}.pkl")))
+                else:
+                    print(f"[Warning] Disk too slow! Skipping demo save at step {step}.")
+                
+                demo_transitions = [] # 務必清空
             
             # 選項：檢查 Queue 是否堆積過多，如果堆積太多可以印出警告
             if save_queue.qsize() > 2:
@@ -485,15 +493,21 @@ def main(_):
 
     if FLAGS.checkpoint_path is not None and os.path.exists(FLAGS.checkpoint_path):
         input("Checkpoint path already exists. Press Enter to resume training.")
-        ckpt = checkpoints.restore_checkpoint(
-            os.path.abspath(FLAGS.checkpoint_path),
-            agent.state,
-        )
-        agent = agent.replace(state=ckpt)
-        ckpt_number = os.path.basename(
-            checkpoints.latest_checkpoint(os.path.abspath(FLAGS.checkpoint_path))
-        )[11:]
-        print_green(f"Loaded previous checkpoint at step {ckpt_number}.")
+        
+        # === [FIX START] 先檢查有沒有真的 checkpoint 檔案，避免 NoneType 錯誤 ===
+        latest_ckpt = checkpoints.latest_checkpoint(os.path.abspath(FLAGS.checkpoint_path))
+        
+        if latest_ckpt is not None:
+            ckpt = checkpoints.restore_checkpoint(
+                os.path.abspath(FLAGS.checkpoint_path),
+                agent.state,
+            )
+            agent = agent.replace(state=ckpt)
+            ckpt_number = os.path.basename(latest_ckpt)[11:]
+            print_green(f"Loaded previous checkpoint at step {ckpt_number}.")
+        else:
+            print_green("⚠️ No checkpoint found in the existing path. Starting training from scratch.")
+        # === [FIX END] ==========================================================
 
     def create_replay_buffer_and_wandb_logger():
         replay_buffer = MemoryEfficientReplayBufferDataStore(
@@ -608,8 +622,8 @@ def main(_):
 
     elif FLAGS.actor:
         sampling_rng = jax.device_put(sampling_rng, sharding.replicate())
-        data_store = QueuedDataStore(50000)  # the queue size on the actor
-        intvn_data_store = QueuedDataStore(50000)
+        data_store = QueuedDataStore(2500)  # the queue size on the actor
+        intvn_data_store = QueuedDataStore(2500)
 
         # actor loop
         print_green("starting actor loop")

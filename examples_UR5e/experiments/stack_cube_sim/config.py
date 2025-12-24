@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import glfw
 import gymnasium as gym
+import cv2 # 新增這行
 
 from franka_env.envs.wrappers import (
     Quat2EulerWrapper,
@@ -27,24 +28,28 @@ class EnvConfig(DefaultEnvConfig):
     REALSENSE_CAMERAS = {
         "left": {
             "serial_number": "127122270146",
-            "dim": (1280, 720),
+            "dim": (128, 128),
             "exposure": 40000,
         },
         "wrist": {
             "serial_number": "127122270350",
-            "dim": (1280, 720),
+            "dim": (128, 128),
             "exposure": 40000,
         },
         "right": {
             "serial_number": "none",
-            "dim": (1280, 720),
+            "dim": (128, 128),
             "exposure": 40000,
         },
     }
+    def crop_and_resize(img):
+        # 如果需要裁切可以在這裡加，這裡示範直接縮放
+        return cv2.resize(img, (128, 128)) 
+
     IMAGE_CROP = {
-        "left": lambda img: img,
-        "wrist": lambda img: img,
-        "right": lambda img: img,
+        "left": crop_and_resize,
+        "wrist": crop_and_resize,
+        "right": crop_and_resize,
     }
     TARGET_POSE = np.array([0.5881241235410154,-0.03578590131997776,0.27843494179085326, np.pi, 0, 0])
     GRASP_POSE = np.array([0.5857508505445138,-0.22036261105675414,0.2731021902359492, np.pi, 0, 0])
@@ -233,7 +238,7 @@ class TrainConfig(DefaultTrainingConfig):
     replay_buffer_capacity = 10000
 
     def get_environment(self, fake_env=False, save_video=False, classifier=False, render_mode="human"):
-        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=15, config=EnvConfig())
+        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=12, config=EnvConfig())
 
         # NOTE: Classifier is force disabled here based on previous code snippets?
         # But 'classifier' arg comes in.
@@ -247,7 +252,7 @@ class TrainConfig(DefaultTrainingConfig):
 
         env = SERLObsWrapper(env, proprio_keys=self.proprio_keys)
         env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
-
+        classifier=False
         if classifier:
             classifier_func = load_classifier_func(
                 key=jax.random.PRNGKey(0),
