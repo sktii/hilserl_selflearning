@@ -147,6 +147,7 @@ class VideoRecorder(gym.Wrapper):
                     # Plot one episode per file.
                     frames_to_save = frames
                     should_save = True
+                    self.all_frames = []
                 elif self.num_record_episodes == 0:
                     # Plot all episodes in one file.
                     frames_to_save = compose_frames(
