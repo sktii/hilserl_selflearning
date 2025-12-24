@@ -7,7 +7,7 @@
 # print("Debugger Attached")
 import sys
 sys.path.insert(0, '../../../')
-
+import threading
 import glob
 import time
 import jax
@@ -17,6 +17,8 @@ import tqdm
 from absl import app, flags
 from flax.training import checkpoints
 import os
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false" # 防止 JAX 佔滿顯存
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".50"  # 或者限制每個進程只用 50%
 import copy
 import pickle as pkl
 from gymnasium.wrappers.record_episode_statistics import RecordEpisodeStatistics
@@ -210,10 +212,12 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
             if 'grasp_penalty' in info:
                 transition['grasp_penalty']= info['grasp_penalty']
             data_store.insert(transition)
-            transitions.append(copy.deepcopy(transition))
+            transitions.append(transition.copy()) 
+            
             if already_intervened:
                 intvn_data_store.insert(transition)
-                demo_transitions.append(copy.deepcopy(transition))
+                # 同樣移除 deepcopy
+                demo_transitions.append(transition.copy())
 
             obs = next_obs
             if done or truncated:
@@ -230,20 +234,23 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
                 obs, _ = env.reset()
 
         if step > 0 and config.buffer_period > 0 and step % config.buffer_period == 0:
-            # dump to pickle file
             buffer_path = os.path.join(FLAGS.checkpoint_path, "buffer")
             demo_buffer_path = os.path.join(FLAGS.checkpoint_path, "demo_buffer")
-            if not os.path.exists(buffer_path):
-                os.makedirs(buffer_path)
-            if not os.path.exists(demo_buffer_path):
-                os.makedirs(demo_buffer_path)
-            with open(os.path.join(buffer_path, f"transitions_{step}.pkl"), "wb") as f:
-                pkl.dump(transitions, f)
-                transitions = []
-            with open(
-                os.path.join(demo_buffer_path, f"transitions_{step}.pkl"), "wb"
-            ) as f:
-                pkl.dump(demo_transitions, f)
+            if not os.path.exists(buffer_path): os.makedirs(buffer_path)
+            if not os.path.exists(demo_buffer_path): os.makedirs(demo_buffer_path)
+
+            # 定義存檔函數
+            def save_data(data, path):
+                with open(path, "wb") as f:
+                    pkl.dump(data, f)
+
+            # [FIX] 使用 Thread 背景存檔，避免卡住主迴圈
+            # 注意：這裡將列表 reference 傳給 thread，並將主變數指向新列表
+            threading.Thread(target=save_data, args=(transitions, os.path.join(buffer_path, f"transitions_{step}.pkl"))).start()
+            transitions = [] # 立即重置主列表
+
+            if len(demo_transitions) > 0:
+                threading.Thread(target=save_data, args=(demo_transitions, os.path.join(demo_buffer_path, f"transitions_{step}.pkl"))).start()
                 demo_transitions = []
 
         timer.tock("total")
