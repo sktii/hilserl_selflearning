@@ -408,12 +408,20 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             self._viewer.render(self.render_mode)
 
         dt = time.time() - start_time
-        if self.intervened:
-            time.sleep(max(0, (1.0 / self.hz) - dt))
+        
+        # --- FIX: 強制鎖定頻率，解決 400FPS 資源搶奪問題 ---
+        # 無論是否介入，都依照 self.hz (15Hz) 的節奏運行
+        target_dt = 1.0 / self.hz
+        sleep_time = max(0, target_dt - dt)
+        
+        # 確保有足夠的 sleep 時間讓 Flask 伺服器處理網路請求
+        # 如果運算太慢導致 sleep_time 為 0，則強制讓出 GIL 一點點時間
+        if sleep_time > 0:
+            time.sleep(sleep_time)
         else:
-            # Yield GIL to allow monitor server to run
-            time.sleep(max(0.01, (1.0 / self.hz) - dt))
-
+            time.sleep(0.002) 
+        # ------------------------------------------------
+        
         collision = self._check_collision()
         if collision:
             terminated = False
