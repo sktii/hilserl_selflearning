@@ -317,9 +317,16 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             def run_app():
                 try:
                     # Attempt to open Port 5000
+                    print("[SimMonitor] Trying to bind port 5000...")
                     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+                except OSError:
+                    print("[SimMonitor] Port 5000 occupied. Trying port 5001...")
+                    try:
+                        app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)
+                    except Exception as e:
+                        print(f"[SimMonitor] Port 5001 also occupied or failed: {e}")
                 except Exception as e:
-                    print(f"[SimMonitor] Port 5000 occupied or cannot start: {e}")
+                     print(f"[SimMonitor] Failed to start on port 5000: {e}")
 
             # Run in background
             t = threading.Thread(target=run_app)
