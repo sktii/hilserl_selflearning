@@ -3,7 +3,15 @@ from tkinter import ttk
 import requests
 import time
 import threading
+import argparse  # 新增: 參數解析庫
 
+# --- 新增這段參數解析代碼 ---
+parser = argparse.ArgumentParser(description="Robot Monitor Dashboard")
+parser.add_argument("--port", type=int, default=5000, help="Port of the robot server (default: 5000)")
+args = parser.parse_args()
+
+# 使用參數指定的埠號
+SERVER_URL = f"http://127.0.0.1:{args.port}"
 # Default ports to try. Priority: 5001 (Actor), then 5000 (Learner/Default)
 TARGET_PORTS = [5001, 5000]
 
