@@ -264,3 +264,4 @@ treescope==0.1.10
 zipp==3.23.0
 flask
 ur_rtde
+requests
