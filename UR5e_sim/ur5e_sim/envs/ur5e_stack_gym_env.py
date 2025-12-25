@@ -11,6 +11,7 @@ import time
 import threading
 import logging
 from flask import Flask, jsonify
+import requests
 
 try:
     import mujoco_py
@@ -55,8 +56,13 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         image_obs: bool = False,
         config = None,
         hz = 10,
+        real_robot: bool = False,
+        real_robot_ip: str = "127.0.0.1",
     ):
         self.hz = hz
+        self.real_robot = real_robot
+        self.real_robot_ip = real_robot_ip
+
         if config is not None and hasattr(config, 'ACTION_SCALE'):
             self._action_scale = np.array(config.ACTION_SCALE)
         else:
@@ -202,6 +208,58 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
         # Start monitor server regardless of renderer status
         self._start_monitor_server()
+
+        # Connect to real robot if enabled
+        if self.real_robot:
+            self._connect_real_robot()
+
+    def _connect_real_robot(self):
+        """Initial connection check to the real robot server."""
+        url = f"http://{self.real_robot_ip}:5000/clearerr"
+        print(f"[Sim] Connecting to Real Robot Server at {url}...")
+        try:
+            requests.post(url, timeout=2.0)
+            print("[Sim] Connected to Real Robot Server.")
+        except Exception as e:
+            print(f"[Sim] Failed to connect to Real Robot Server: {e}")
+
+    def _send_real_robot_command(self, tcp_pos, tcp_ori, gripper_pos):
+        """Send the current simulation state to the real robot."""
+        # tcp_pos: [x, y, z]
+        # tcp_ori: [x, y, z, w] (Quat)
+        # gripper_pos: 0.0 (open) to 1.0 (closed) - Wait, Robotiq is 0(Open)-255(Closed).
+        # UR Server expects 'pose' endpoint: {"arr": [x, y, z, qx, qy, qz, qw]}
+
+        # NOTE: UR Server 'pose' route expects [x, y, z, qx, qy, qz, qw].
+        # It handles 'moveL' or 'pose' command.
+        # We use 'pose' because it updates the target for the impedance controller (forceMode),
+        # which is non-blocking and suitable for high-frequency tracking (shadow mode).
+        # 'movel' is blocking and would cause stuttering.
+
+        url = f"http://{self.real_robot_ip}:5000/pose"
+
+        # Prepare payload
+        payload = np.concatenate([tcp_pos, tcp_ori]).tolist()
+
+        try:
+            # Send Pose
+            requests.post(url, json={"arr": payload}, timeout=0.05)
+
+            # Send Gripper
+            # Map 0.0 (Open) - 1.0 (Closed) to 0-255
+            # Sim: 0=Open? Wait.
+            # In Sim:
+            # g = self._data.ctrl[self._gripper_ctrl_id] / 255.0
+            # So g is 0..1.
+            # Robotiq driver expects 0-255.
+
+            g_int = int(np.clip(gripper_pos * 255, 0, 255))
+            requests.post(f"http://{self.real_robot_ip}:5000/move_gripper",
+                          json={"gripper_pos": g_int}, timeout=0.05)
+
+        except Exception as e:
+             # print(f"[Sim] Real Robot Sync Error: {e}")
+             pass
 
     def reset(
         self, seed=None, **kwargs
@@ -433,6 +491,33 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         # else:
         #     time.sleep(0.002) 
         # ------------------------------------------------
+
+        # --- REAL ROBOT SYNC ---
+        if self.real_robot:
+            # Get current TCP Pose from Simulation (Mocap or Actual?)
+            # We should probably send the *Actual* robot pose in sim, or the *Target* (Mocap)?
+            # Sending Actual is safer as it follows physics.
+
+            # Get actual TCP pos/quat from site
+            try:
+                # Use site pinch position
+                sim_tcp_pos = self._data.site_xpos[self._pinch_site_id]
+                sim_site_mat = self._data.site_xmat[self._pinch_site_id].reshape(9)
+                sim_tcp_quat = np.zeros(4)
+                mujoco.mju_mat2Quat(sim_tcp_quat, sim_site_mat)
+                # quat: [w, x, y, z] -> Server expects [x, y, z, w]?
+                # UR Server expects: r = R.from_quat(pos[3:]) where pos[3:] is 4 elements.
+                # scipy R.from_quat expects [x, y, z, w].
+                # Mujoco mju_mat2Quat returns [w, x, y, z].
+                # So we need to reorder to [x, y, z, w].
+                sim_tcp_quat_scipy = sim_tcp_quat[[1, 2, 3, 0]]
+
+                sim_gripper_val = self._data.ctrl[self._gripper_ctrl_id] / 255.0
+
+                self._send_real_robot_command(sim_tcp_pos, sim_tcp_quat_scipy, sim_gripper_val)
+            except Exception as e:
+                pass
+        # -----------------------
         
         collision = self._check_collision()
         if collision:
