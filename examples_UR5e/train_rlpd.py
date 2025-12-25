@@ -146,12 +146,45 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
         timeout_ms=3000,
     )
 
-    # Function to update the agent with new params
+    # === [FIX START] Asynchronous Network Update ===
+    # Using a queue to pass ready-to-use params from background thread to main thread
+    param_update_queue = queue.Queue(maxsize=1)
+
     def update_params(params):
-        nonlocal agent
-        agent = agent.replace(state=agent.state.replace(params=params))
+        """
+        Callback triggered by the networking thread when new params arrive.
+        Crucially, we do the heavy JAX device transfer HERE (in the background),
+        not in the main loop.
+        """
+        try:
+            # 1. Pre-fetch to device (this is the slow part on low-mem GPUs)
+            # We use jax.tree_map to ensure all leaves are put on the device
+            # Note: 'agent' here refers to the one captured from outer scope,
+            # but we only need its structure/sharding info if we were being fancy.
+            # Ideally, just putting it on device is enough.
+            # We assume params structure matches agent.state.params
+
+            # This 'params' is likely a dict of numpy arrays from the network.
+            # We cast it to JAX arrays on the correct device.
+            device_params = jax.device_put(params, sharding.replicate())
+
+            # 2. Block until transfer is done to ensure the main thread
+            # receives fully ready data (optional but safer for "stop" diagnosis)
+            # jax.block_until_ready(device_params)
+
+            # 3. Put into queue for main thread to pick up instantly
+            if param_update_queue.full():
+                try:
+                    param_update_queue.get_nowait() # Discard old update if main loop is slow
+                except queue.Empty:
+                    pass
+            param_update_queue.put(device_params)
+
+        except Exception as e:
+            print(f"Error in background param update: {e}")
 
     client.recv_network_callback(update_params)
+    # === [FIX END] =================================
 
     transitions = []
     demo_transitions = []
@@ -199,6 +232,17 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
 
     for step in pbar:
         timer.tick("total")
+
+        # === [FIX START] Check for new params in main loop ===
+        try:
+            # Check if new weights are available from the background thread
+            new_params = param_update_queue.get_nowait()
+            # Swap instantly (pointer swap)
+            agent = agent.replace(state=agent.state.replace(params=new_params))
+            # print("Updated agent params!")
+        except queue.Empty:
+            pass
+        # === [FIX END] =======================================
 
         with timer.context("sample_actions"):
             if step < config.random_steps:
