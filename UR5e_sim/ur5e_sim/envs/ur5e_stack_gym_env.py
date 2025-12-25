@@ -232,9 +232,11 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
         # NOTE: UR Server 'pose' route expects [x, y, z, qx, qy, qz, qw].
         # It handles 'moveL' or 'pose' command.
-        # We will use 'movel' for linear movement.
+        # We use 'pose' because it updates the target for the impedance controller (forceMode),
+        # which is non-blocking and suitable for high-frequency tracking (shadow mode).
+        # 'movel' is blocking and would cause stuttering.
 
-        url = f"http://{self.real_robot_ip}:5000/movel"
+        url = f"http://{self.real_robot_ip}:5000/pose"
 
         # Prepare payload
         payload = np.concatenate([tcp_pos, tcp_ori]).tolist()
