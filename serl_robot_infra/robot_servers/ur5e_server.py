@@ -6,7 +6,7 @@ from scipy.spatial.transform import Rotation as R
 from absl import app, logging, flags
 
 import ur5e_driver
-import robotiq_gripper_driver
+import ur5e_robotiq_gripper_driver as robotiq_gripper_driver
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("robot_ip", "192.168.0.10", "IP address of the UR5e robot")
