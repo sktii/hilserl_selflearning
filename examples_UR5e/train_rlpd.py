@@ -234,7 +234,8 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
     for step in pbar:
         step_duration = time.time() - step_start_time
         if step_duration > 1.0:
-            print(f"[DEBUG] Actor Step {step-1} took {step_duration:.4f}s. Queue size: {data_store.queue.qsize()}")
+            # Use len(data_store) to get the current number of items
+            print(f"[DEBUG] Actor Step {step-1} took {step_duration:.4f}s. Queue size: {len(data_store)}")
         step_start_time = time.time()
 
         timer.tick("total")
