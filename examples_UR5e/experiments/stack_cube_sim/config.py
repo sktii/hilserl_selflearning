@@ -18,7 +18,7 @@ from serl_launcher.wrappers.serl_obs_wrappers import SERLObsWrapper
 from serl_launcher.wrappers.chunking import ChunkingWrapper
 from serl_launcher.networks.reward_classifier import load_classifier_func
 
-from examples.experiments.config import DefaultTrainingConfig
+from examples_UR5e.experiments.config import DefaultTrainingConfig
 # from examples.experiments.ram_insertion.wrapper import RAMEnv # Commented out
 
 from ur5e_sim.envs.ur5e_stack_gym_env import UR5eStackCubeGymEnv
