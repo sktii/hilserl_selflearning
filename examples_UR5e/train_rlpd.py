@@ -42,6 +42,12 @@ from serl_launcher.utils.launcher import (
     make_wandb_logger,
 )
 from serl_launcher.data.data_store import MemoryEfficientReplayBufferDataStore
+from serl_launcher.common.encoding import EncodingWrapper
+from serl_launcher.networks.mlp import MLP
+from serl_launcher.networks.actor_critic_nets import Critic, Policy, ensemblize
+from serl_launcher.networks.lagrange import GeqLagrangeMultiplier
+from functools import partial
+import flax.linen as nn
 
 from experiments.mappings import CONFIG_MAPPING
 
@@ -71,6 +77,96 @@ sharding = jax.sharding.PositionalSharding(devices)
 def print_green(x):
     return print("\033[92m {}\033[00m".format(x))
 
+def make_state_agent(
+    seed,
+    sample_obs,
+    sample_action,
+    image_keys=(),
+    encoder_type="mlp", # Ignored/MLP
+    reward_bias=0.0,
+    target_entropy=None,
+    discount=0.97,
+    # Additional args
+    policy_kwargs = {
+        "tanh_squash_distribution": True,
+        "std_parameterization": "exp",
+        "std_min": 1e-5,
+        "std_max": 5,
+    },
+    critic_network_kwargs = {
+        "activations": nn.tanh,
+        "use_layer_norm": True,
+        "hidden_dims": [256, 256],
+    },
+    policy_network_kwargs = {
+        "activations": nn.tanh,
+        "use_layer_norm": True,
+        "hidden_dims": [256, 256],
+    },
+):
+    # Encoders: Identity or MLP.
+    # EncodingWrapper supports empty image_keys, effectively passing proprio.
+    # However, create_pixels sets up encoders. create does not.
+    # We will use SACAgent.create directly.
+
+    # 1. Define Encoders (None for state-only, or EncodingWrapper with no images?)
+    # Ideally, we want the state to be flattened and passed to MLP.
+    # EncodingWrapper handles proprio concatenation.
+
+    encoder_def = EncodingWrapper(
+        encoder={}, # No image encoders
+        use_proprio=True,
+        enable_stacking=False, # Usually False for state? Or True if using history? Config says obs_horizon=1.
+        image_keys=[],
+    )
+
+    encoders = {
+        "critic": encoder_def,
+        "actor": encoder_def,
+    }
+
+    # 2. Define Networks
+    critic_ensemble_size = 2
+
+    critic_backbone = partial(MLP, **critic_network_kwargs)
+    critic_backbone = ensemblize(critic_backbone, critic_ensemble_size)(
+        name="critic_ensemble"
+    )
+    critic_def = partial(
+        Critic, encoder=encoders["critic"], network=critic_backbone
+    )(name="critic")
+
+    policy_def = Policy(
+        encoder=encoders["actor"],
+        network=MLP(**policy_network_kwargs),
+        action_dim=sample_action.shape[-1],
+        **policy_kwargs,
+        name="actor",
+    )
+
+    temperature_def = GeqLagrangeMultiplier(
+        init_value=1.0,
+        constraint_shape=(),
+        constraint_type="geq",
+        name="temperature",
+    )
+
+    agent = SACAgentHybridSingleArm.create(
+        jax.random.PRNGKey(seed),
+        sample_obs,
+        sample_action,
+        actor_def=policy_def,
+        critic_def=critic_def,
+        temperature_def=temperature_def,
+        grasp_critic_def=critic_def, # Shared def structure, re-init params
+        critic_ensemble_size=critic_ensemble_size,
+        discount=discount,
+        reward_bias=reward_bias,
+        target_entropy=target_entropy,
+        image_keys=image_keys,
+    )
+
+    return agent
 
 ##############################################################################
 
@@ -511,7 +607,20 @@ def main(_):
 
     rng, sampling_rng = jax.random.split(rng)
     
-    if config.setup_mode == 'single-arm-fixed-gripper' or config.setup_mode == 'dual-arm-fixed-gripper':   
+    if len(config.image_keys) == 0:
+        # State-based agent
+        agent = make_state_agent(
+            seed=FLAGS.seed,
+            sample_obs=env.observation_space.sample(),
+            sample_action=env.action_space.sample(),
+            image_keys=config.image_keys,
+            encoder_type=config.encoder_type,
+            discount=config.discount,
+        )
+        include_grasp_penalty = True if "learned-gripper" in config.setup_mode else False
+        print_green("Initialized State-Based SAC Agent")
+
+    elif config.setup_mode == 'single-arm-fixed-gripper' or config.setup_mode == 'dual-arm-fixed-gripper':
         agent: SACAgent = make_sac_pixel_agent(
             seed=FLAGS.seed,
             sample_obs=env.observation_space.sample(),

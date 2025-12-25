@@ -288,19 +288,19 @@ class KeyBoardIntervention2(gym.ActionWrapper):
 
 
 class TrainConfig(DefaultTrainingConfig):
-    image_keys = ["left", "wrist", "right"]
+    image_keys = []
     classifier_keys = ["left", "wrist", "right"]
-    proprio_keys = ["tcp_pose", "tcp_vel", "tcp_force", "tcp_torque", "gripper_pose"]
+    proprio_keys = ["ur5e/tcp_pos", "ur5e/tcp_vel", "ur5e/gripper_pos", "block_pos", "target_cube_pos", "obstacle_state"]
     buffer_period = 1000
     checkpoint_period = 5000
     steps_per_update = 200
-    encoder_type = "resnet-pretrained"
+    encoder_type = "mlp"
     # setup_mode = "single-arm-fixed-gripper"
     setup_mode = "single-arm-learned-gripper"
     replay_buffer_capacity = 10000
 
     def get_environment(self, fake_env=False, save_video=False, classifier=False, render_mode="human"):
-        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=True, hz=12, config=EnvConfig())
+        env = UR5eStackCubeGymEnv(render_mode=render_mode, image_obs=False, hz=12, config=EnvConfig())
 
         # NOTE: Classifier is force disabled here based on previous code snippets?
         # But 'classifier' arg comes in.
