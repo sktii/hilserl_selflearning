@@ -188,6 +188,18 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
              print(f"Warning: Failed to initialize MujocoRenderer: {e}")
              self._viewer = None
 
+# [新增] 預先緩存允許碰撞的 Geom ID，避免在 step 中做字串運算
+        self._safe_geom_ids = set()
+        safe_names = ["block", "floor", "target_geom", "target"]
+        for name in safe_names:
+            # 查找 Geom ID
+            gid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+            if gid != -1:
+                self._safe_geom_ids.add(gid)
+            else:
+                # 為了除錯，如果找不到 ID 可以印出來 (可選)
+                print(f"Warning: Safe geom '{name}' not found in model.")
+
         # Start monitor server regardless of renderer status
         self._start_monitor_server()
 
@@ -448,6 +460,28 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         return obs, rew, terminated, False, {"succeed": success, "grasp_penalty": grasp_penalty}
 
     def _check_collision(self):
+        # 遍歷所有接觸點
+        for i in range(self._data.ncon):
+            contact = self._data.contact[i]
+
+            g1 = contact.geom1
+            g2 = contact.geom2
+
+            # 檢查是否涉及柱子 (Pillar)
+            # 這裡你原本已經優化過用了 ID list，很好
+            is_g1_pillar = g1 in self._pillar_geom_ids
+            is_g2_pillar = g2 in self._pillar_geom_ids
+
+            if is_g1_pillar or is_g2_pillar:
+                # 找出「撞到柱子的那個東西」是誰
+                other_id = g2 if is_g1_pillar else g1
+                
+                # [優化核心] 直接檢查 ID 是否在安全名單中 (整數比對，極快)
+                # 如果 other_id 不在安全名單 (block/floor/target)，代表發生了非法碰撞
+                if other_id not in self._safe_geom_ids:
+                    return True
+                    
+        return False
         for i in range(self._data.ncon):
             contact = self._data.contact[i]
 
