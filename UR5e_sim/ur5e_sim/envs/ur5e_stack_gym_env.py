@@ -39,7 +39,7 @@ _UR5E_HOME = np.asarray([0, -1.57, 1.57, -1.57, -1.57, 0])
 
 _CARTESIAN_BOUNDS = np.asarray([[0.2, -0.3, 0], [0.6, 0.3, 0.5]])
 _SAMPLING_BOUNDS = np.asarray([[0.25, -0.25], [0.55, 0.25]])
-
+_MAX_OBSTACLES = 6
 
 class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
     metadata = {"render_modes": ["rgb_array", "human"]}
@@ -163,6 +163,9 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                             ),
                             "target_cube_pos": gymnasium_spaces.Box(
                                 -np.inf, np.inf, shape=(3,), dtype=np.float32
+                            ),
+                            "obstacle_state": gymnasium_spaces.Box(
+                                -np.inf, np.inf, shape=(_MAX_OBSTACLES * 7,), dtype=np.float32
                             ),
                         }
                     ),
@@ -302,6 +305,35 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         }
         obs = self._compute_observation()
         return obs, {"succeed": False}
+
+    def _get_obstacle_state(self):
+        # Format: [exists, pos_x, pos_y, pos_z, size_x, size_y, size_z]
+        obs_state = np.zeros((_MAX_OBSTACLES, 7), dtype=np.float32)
+        idx = 0
+
+        # Pillars
+        for i in range(1, 3):
+            # Cylinder
+            name = f"pillar_cyl_{i}"
+            gid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+            if gid != -1 and idx < _MAX_OBSTACLES:
+                pos = self._model.geom_pos[gid]
+                size = self._model.geom_size[gid] # [radius, half_height, 0] for cylinder
+                # Convert cylinder size to bounding box approximation (radius, radius, half_height)
+                # Note: geom_size for cylinder is [radius, half_height, 0]
+                obs_state[idx] = [1.0, pos[0], pos[1], pos[2], size[0], size[0], size[1]]
+                idx += 1
+
+            # Box
+            name = f"pillar_box_{i}"
+            gid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+            if gid != -1 and idx < _MAX_OBSTACLES:
+                pos = self._model.geom_pos[gid]
+                size = self._model.geom_size[gid] # [hx, hy, hz]
+                obs_state[idx] = [1.0, pos[0], pos[1], pos[2], size[0], size[1], size[2]]
+                idx += 1
+
+        return obs_state.flatten()
 
     def _randomize_pillars(self, block_xy, target_xy):
         safe_dist = 0.14
@@ -664,6 +696,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         else:
             block_pos = self._data.sensor("block_pos").data.astype(np.float32)
             obs["state"]["block_pos"] = block_pos
+            obs["state"]["obstacle_state"] = self._get_obstacle_state()
 
 
         gripper_pos = np.array(
