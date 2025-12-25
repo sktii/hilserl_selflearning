@@ -60,9 +60,9 @@ def main():
         while True:
             # We pass a dummy action. The KeyBoard wrapper will overwrite it
             # if intervention is active.
-            # Action space is usually 4 (x,y,z,gripper) or 6.
-            # KeyBoardIntervention2 expects the underlying env to take the action it generates.
-            dummy_action = np.zeros(6) # Shape matches typical 6D input, wrapper handles 4D/6D mapping if needed
+            # Env expects 4 dimensions [x, y, z, grasp].
+            # If we pass 6, and intervention is OFF, it will try to pass 6 to env.step -> Crash.
+            dummy_action = np.zeros(4)
 
             # Note: KeyBoardIntervention2.action() generates a 4D action [x,y,z,grip] if wrapper disabled gripper?
             # Let's check config.

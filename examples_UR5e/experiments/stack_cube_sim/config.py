@@ -186,7 +186,69 @@ class KeyBoardIntervention2(gym.ActionWrapper):
                 gripper_action = np.random.uniform(-1, -0.9, size=(1,))
 
             # Combine [x, y, z, (rot...), gripper]
-            expert_a = np.concatenate((expert_a[:3], gripper_action), axis=0)
+            # Check environment action space size
+            # If size is 4, we need [x, y, z, gripper]
+            # If size is 6 or 7, we might need rotation.
+            # Current `current_action` is initialized to size 6 (xyz rpy).
+            # But the logic below `expert_a = np.concatenate((expert_a[:3], gripper_action), axis=0)`
+            # constructs a 4-element vector (3 pos + 1 grip).
+            # Wait, `expert_a[:3]` is 3 elements. `gripper_action` is 1. Result is 4.
+
+            # However, `expert_a` was initialized as `self.current_action.copy()`.
+            # `self.current_action` is initialized as size 6.
+
+            # The previous code was:
+            # expert_a = np.concatenate((expert_a[:3], gripper_action), axis=0)
+            # This results in size 4.
+
+            # Let's verify `self.env.action_space`.
+            if self.env.action_space.shape[0] == 4:
+                expert_a = np.concatenate((expert_a[:3], gripper_action), axis=0)
+            else:
+                 # Assume 6D + gripper = 7D? Or 6D?
+                 # If env expects 6D (xyz + rpy?), it might not have gripper?
+                 # UR5e env has action space 4: xyz + grasp.
+                 # So returning 4 is correct.
+                 # Why did it crash with "too many values"?
+                 # Maybe `action` (the input argument) is used somewhere?
+                 # Ah, the Wrapper *returns* the action.
+
+                 # The user error was: `x, y, z, grasp = action` -> `ValueError: too many values to unpack (expected 4)`
+                 # This means `action` had MORE than 4 values.
+                 # If `expert_a` (intervention) was 4, then maybe `action` (the policy action) passed in was >4?
+                 # In `run_human_control.py`, we pass `dummy_action = np.zeros(6)`.
+                 # And `KeyBoardIntervention2.action()` returns `action` (the input) if not intervened.
+                 # `return action, False`
+
+                 # So if intervention is OFF (False), it returns `action` which is `dummy_action` (size 6).
+                 # Sim environment expects size 4.
+                 # So if we pass size 6 into `step()`, and intervention is OFF, it crashes.
+                 pass
+
+            # Fix: Ensure returned action matches env expected shape if not intervened
+            if self.env.action_space.shape[0] == 4 and action.shape[0] > 4:
+                # Truncate input action to match env
+                # Assuming input is [x,y,z, rx,ry,rz, gripper] or similar?
+                # Or just [x,y,z, ... , gripper]
+                # We usually want [x,y,z, gripper]
+                # If input is 6 [x,y,z,rx,ry,rz], we are missing gripper? Or is it [x,y,z,rx,ry,rz,grip]?
+                # `run_human_control` passes `np.zeros(6)`.
+
+                # Let's just construct a valid zero action of size 4 if intervention is off
+                # But we should rely on what was passed in.
+
+                # Ideally, `run_human_control` should pass a valid action size.
+                pass
+
+            if self.env.action_space.shape[0] == 4:
+                 expert_a = np.concatenate((expert_a[:3], gripper_action), axis=0)
+            elif self.env.action_space.shape[0] == 7: # xyz + quat + grip
+                 # Not supported by keyboard yet, just zero rotation
+                 expert_a = np.concatenate((expert_a[:3], np.array([0,0,0,1]), gripper_action), axis=0)
+            elif self.env.action_space.shape[0] == 6:
+                 # xyz + rpy? or xyz + grip?
+                 # If UR5e env is 4, we use 4.
+                 pass
 
         # Action Masking
         if self.action_indices is not None:
