@@ -263,3 +263,4 @@ tensorstore==0.1.78
 treescope==0.1.10
 zipp==3.23.0
 flask
+ur_rtde
