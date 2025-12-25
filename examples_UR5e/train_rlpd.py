@@ -230,7 +230,13 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
     obs, _ = env.reset()
     done = False
 
+    step_start_time = time.time()
     for step in pbar:
+        step_duration = time.time() - step_start_time
+        if step_duration > 1.0:
+            print(f"[DEBUG] Actor Step {step-1} took {step_duration:.4f}s. Queue size: {data_store.queue.qsize()}")
+        step_start_time = time.time()
+
         timer.tick("total")
 
         # === [FIX START] Check for new params in main loop ===
@@ -419,6 +425,8 @@ def learner(rng, agent, replay_buffer, demo_buffer, wandb_logger=None):
     ):
         # run n-1 critic updates and 1 critic + actor update.
         # This makes training on GPU faster by reducing the large batch transfer time from CPU to GPU
+
+        learner_step_start = time.time()
         for critic_step in range(config.cta_ratio - 1):
             with timer.context("sample_replay_buffer"):
                 batch = next(replay_iterator)
@@ -439,10 +447,15 @@ def learner(rng, agent, replay_buffer, demo_buffer, wandb_logger=None):
                 batch,
                 networks_to_update=train_networks_to_update,
             )
+
         # publish the updated network
         if step > 0 and step % (config.steps_per_update) == 0:
             agent = jax.block_until_ready(agent)
             server.publish_network(agent.state.params)
+
+        learner_step_duration = time.time() - learner_step_start
+        if learner_step_duration > 1.0:
+             print(f"[DEBUG] Learner Step {step} took {learner_step_duration:.4f}s")
 
         if step % config.log_period == 0 and wandb_logger:
             wandb_logger.log(update_info, step=step)
