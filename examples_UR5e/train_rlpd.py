@@ -313,7 +313,15 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
                 intervention_count = 0
                 intervention_steps = 0
                 already_intervened = False
-                client.update()
+
+                # Force flush the queue until it is almost empty
+                # This ensures the learner gets the data and the queue doesn't keep growing
+                while len(data_store) > 500:
+                    client.update()
+                    if len(data_store) > 500:
+                        time.sleep(0.02)
+                client.update() # One final push
+
                 obs, _ = env.reset()
 
         if step > 0 and config.buffer_period > 0 and step % config.buffer_period == 0:
