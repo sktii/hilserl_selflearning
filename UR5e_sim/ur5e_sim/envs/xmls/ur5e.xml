@@ -280,6 +280,8 @@
     <exclude body1="robot0:2f85:base" body2="robot0:2f85:left_coupler" />
     <exclude body1="robot0:2f85:base" body2="robot0:2f85:right_follower" />
     <exclude body1="robot0:2f85:base" body2="robot0:2f85:left_follower" />
+    <exclude body1="robot0:2f85:base" body2="robot0:2f85:right_pad" />
+    <exclude body1="robot0:2f85:base" body2="robot0:2f85:left_pad" />
     <exclude body1="robot0:2f85:right_coupler" body2="robot0:2f85:right_follower" />
     <exclude body1="robot0:2f85:left_coupler" body2="robot0:2f85:left_follower" />
   </contact>
