@@ -18,13 +18,13 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2" />
       </default>
       <default class="ur5e:collision">
-        <geom type="capsule" group="3" />
+        <geom type="capsule" group="3" solref="0.002 1"/>
         <default class="ur5e:eef_collision">
           <geom type="cylinder" />
         </default>
       </default>
       <default class="ur5e:manipulation">
-        <geom solimp="0.95 0.95 0.01" solref="0.008 1"
+        <geom solimp="0.95 0.95 0.01" solref="0.002 1"
               friction="1.0 0.005 0.001" margin="0.001"/>
         <joint damping="5.0" armature="0.1"/>
       </default>
@@ -51,14 +51,14 @@
         <geom type="mesh" contype="0" conaffinity="0" group="2"/>
       </default>
       <default class="2f85:collision">
-        <geom type="mesh" group="3"/>
+        <geom type="mesh" group="3" solref="0.002 1"/>
         <default class="pad_box1">
           <geom mass="0" type="box" pos="0 -0.0026 0.028125" size="0.011 0.004 0.009375" friction="0.7"
-            solimp="0.95 0.99 0.001" solref="0.004 1" priority="1" rgba="0.55 0.55 0.55 1"/>
+            solimp="0.95 0.99 0.001" solref="0.002 1" priority="1" rgba="0.55 0.55 0.55 1"/>
         </default>
         <default class="pad_box2">
           <geom mass="0" type="box" pos="0 -0.0026 0.009375" size="0.011 0.004 0.009375" friction="0.6"
-            solimp="0.95 0.99 0.001" solref="0.004 1" priority="1" rgba="0.45 0.45 0.45 1"/>
+            solimp="0.95 0.99 0.001" solref="0.002 1" priority="1" rgba="0.45 0.45 0.45 1"/>
         </default>
       </default>
     </default>
@@ -170,12 +170,12 @@
                   <!-- Adjusting position and quat to match end effector -->
                   <body name="robot0:2f85:base_mount" pos="0 0.1 0" quat="-1 1 0 0" childclass="2f85">
                     <geom class="2f85:visual" mesh="2f85:base_mount" material="2f85:black" />
-                    <geom class="2f85:collision" mesh="2f85:base_mount" />
+                    <geom class="2f85:collision" type="cylinder" size="0.038 0.01" pos="0 0 0" solref="0.002 1"/>
 
                     <body name="robot0:2f85:base" pos="0 0 0.0038" quat="1 0 0 -1">
                       <inertial mass="0.777441" pos="0 -2.70394e-05 0.0354675" quat="1 -0.00152849 0 0" diaginertia="0.000260285 0.000225381 0.000152708" />
                       <geom class="2f85:visual" mesh="2f85:base" material="2f85:black" />
-                      <geom class="2f85:collision" mesh="2f85:base" />
+                      <geom class="2f85:collision" type="cylinder" size="0.038 0.045" pos="0 0 0.045" solref="0.002 1"/>
 
                       <!-- Pinch site for grasp detection -->
                       <site name="pinch" pos="0 0 0.145" type="sphere" group="5" rgba="0.9 0.9 0.9 0.7" size="0.003" />

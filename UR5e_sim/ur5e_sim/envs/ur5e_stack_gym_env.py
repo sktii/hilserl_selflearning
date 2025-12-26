@@ -521,7 +521,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         
         collision = self._check_collision()
         if collision:
-            terminated = False
+            terminated = True
             rew = -5.0
             success = False
             self.success_counter = 0
@@ -553,7 +553,6 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             g2 = contact.geom2
 
             # 檢查是否涉及柱子 (Pillar)
-            # 這裡你原本已經優化過用了 ID list，很好
             is_g1_pillar = g1 in self._pillar_geom_ids
             is_g2_pillar = g2 in self._pillar_geom_ids
 
@@ -566,27 +565,6 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                 if other_id not in self._safe_geom_ids:
                     return True
                     
-        return False
-        for i in range(self._data.ncon):
-            contact = self._data.contact[i]
-
-            # Check if either geom is a pillar by ID
-            g1 = contact.geom1
-            g2 = contact.geom2
-
-            is_g1_pillar = g1 in self._pillar_geom_ids
-            is_g2_pillar = g2 in self._pillar_geom_ids
-
-            if is_g1_pillar or is_g2_pillar:
-                # If pillar is involved, check what it hit
-                other_id = g2 if is_g1_pillar else g1
-                other_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, other_id)
-
-                # If hitting allowed objects, ignore. Allowed: block, floor, target_geom, target
-                # Note: "target" might be body name? Collision uses geom names.
-                # Assuming "block" is geom name.
-                if other_name not in ["block", "floor", "target_geom", "target"]:
-                    return True
         return False
 
     def _compute_success(self, gripper_val):
