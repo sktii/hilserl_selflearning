@@ -681,8 +681,8 @@ def main(_):
 
     elif FLAGS.actor:
         sampling_rng = jax.device_put(sampling_rng, sharding.replicate())
-        data_store = QueuedDataStore(2500)  # the queue size on the actor
-        intvn_data_store = QueuedDataStore(2500)
+        data_store = QueuedDataStore(50000)  # the queue size on the actor
+        intvn_data_store = QueuedDataStore(50000)
 
         # actor loop
         print_green("starting actor loop")
