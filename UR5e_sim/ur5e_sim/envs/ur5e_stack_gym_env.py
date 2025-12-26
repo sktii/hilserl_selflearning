@@ -521,7 +521,6 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         
         collision = self._check_collision()
         if collision:
-            terminated = False
             rew = -5.0
             success = False
             self.success_counter = 0
