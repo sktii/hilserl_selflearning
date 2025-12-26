@@ -18,22 +18,23 @@ class SERLObsWrapper(gym.ObservationWrapper):
             {key: self.env.observation_space["state"][key] for key in self.proprio_keys}
         )
 
-        self.observation_space = gym.spaces.Dict(
-            {
-                "state": flatten_space(self.proprio_space),
-                **(self.env.observation_space["images"]),
-            }
-        )
+        new_obs_space = {"state": flatten_space(self.proprio_space)}
+        if "images" in self.env.observation_space:
+             new_obs_space.update(self.env.observation_space["images"])
+
+        self.observation_space = gym.spaces.Dict(new_obs_space)
 
     def observation(self, obs):
-        obs = {
+        new_obs = {
             "state": flatten(
                 self.proprio_space,
                 {key: obs["state"][key] for key in self.proprio_keys},
             ),
-            **(obs["images"]),
         }
-        return obs
+        if "images" in obs:
+            new_obs.update(obs["images"])
+
+        return new_obs
 
     def reset(self, **kwargs):
         obs, info =  self.env.reset(**kwargs)
