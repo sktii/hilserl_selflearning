@@ -169,6 +169,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                             ),
                         }
                     ),
+                    "images": gymnasium_spaces.Dict({})
                 }
             )
         self.action_space = gymnasium_spaces.Box(
@@ -658,6 +659,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
     def _compute_observation(self) -> dict:
         obs = {}
         obs["state"] = {}
+        obs["images"] = {}
 
         tcp_pos = self._data.sensor("2f85/pinch_pos").data
         obs["state"]["ur5e/tcp_pos"] = tcp_pos.astype(np.float32)
