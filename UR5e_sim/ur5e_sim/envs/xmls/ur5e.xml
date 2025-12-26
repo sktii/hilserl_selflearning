@@ -170,12 +170,12 @@
                   <!-- Adjusting position and quat to match end effector -->
                   <body name="robot0:2f85:base_mount" pos="0 0.1 0" quat="-1 1 0 0" childclass="2f85">
                     <geom class="2f85:visual" mesh="2f85:base_mount" material="2f85:black" />
-                    <geom class="2f85:collision" type="cylinder" size="0.038 0.01" pos="0 0 0" solref="0.002 1"/>
+                    <geom class="2f85:collision" name="base_mount_col" type="sphere" size="0.05" pos="0 0 0" rgba="0 0 0 0" solref="0.002 1"/>
 
                     <body name="robot0:2f85:base" pos="0 0 0.0038" quat="1 0 0 -1">
                       <inertial mass="0.777441" pos="0 -2.70394e-05 0.0354675" quat="1 -0.00152849 0 0" diaginertia="0.000260285 0.000225381 0.000152708" />
                       <geom class="2f85:visual" mesh="2f85:base" material="2f85:black" />
-                      <geom class="2f85:collision" type="cylinder" size="0.038 0.045" pos="0 0 0.045" solref="0.002 1"/>
+                      <geom class="2f85:collision" name="base_col" type="capsule" size="0.045 0.06" pos="0 0 0.045" rgba="0 0 0 0" solref="0.002 1"/>
 
                       <!-- Pinch site for grasp detection -->
                       <site name="pinch" pos="0 0 0.145" type="sphere" group="5" rgba="0.9 0.9 0.9 0.7" size="0.003" />
@@ -276,6 +276,10 @@
     <exclude body1="robot0:2f85:base" body2="robot0:2f85:right_driver" />
     <exclude body1="robot0:2f85:base" body2="robot0:2f85:left_spring_link" />
     <exclude body1="robot0:2f85:base" body2="robot0:2f85:right_spring_link" />
+    <exclude body1="robot0:2f85:base" body2="robot0:2f85:right_coupler" />
+    <exclude body1="robot0:2f85:base" body2="robot0:2f85:left_coupler" />
+    <exclude body1="robot0:2f85:base" body2="robot0:2f85:right_follower" />
+    <exclude body1="robot0:2f85:base" body2="robot0:2f85:left_follower" />
     <exclude body1="robot0:2f85:right_coupler" body2="robot0:2f85:right_follower" />
     <exclude body1="robot0:2f85:left_coupler" body2="robot0:2f85:left_follower" />
   </contact>
