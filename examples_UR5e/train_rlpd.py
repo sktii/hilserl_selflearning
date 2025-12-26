@@ -186,21 +186,6 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
     client.recv_network_callback(update_params)
     # === [FIX END] =================================
 
-    # === [FIX START] Background Client Update ===
-    # Start a thread to update the client periodically in the background
-    # This prevents the main loop from freezing when sending data to the learner
-    def client_update_worker():
-        while True:
-            try:
-                client.update()
-                time.sleep(0.1) # Update every 0.1s
-            except Exception as e:
-                print(f"Error in client update worker: {e}")
-                time.sleep(1.0)
-
-    update_thread = threading.Thread(target=client_update_worker, daemon=True)
-    update_thread.start()
-    # === [FIX END] =================================
 
     transitions = []
     demo_transitions = []
@@ -328,7 +313,7 @@ def actor(agent, data_store, intvn_data_store, env, sampling_rng):
                 intervention_count = 0
                 intervention_steps = 0
                 already_intervened = False
-                # client.update() # Removed, now handled by background thread
+                client.update()
                 obs, _ = env.reset()
 
         if step > 0 and config.buffer_period > 0 and step % config.buffer_period == 0:
