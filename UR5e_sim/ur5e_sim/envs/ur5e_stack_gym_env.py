@@ -319,29 +319,74 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             return np.array([0.8, 0.8])
 
         for i in range(1, 3):
-            name = f"pillar_cyl_{i}"
-            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+            pos = get_safe_pos()
+            radius = self._random.uniform(0.02, 0.03)
+            half_height = self._random.uniform(0.0625, 0.1075)
+
+            # Move Mocap Body
+            body_name = f"pillar_{i}_body"
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, body_name)
             if body_id != -1:
-                pos = get_safe_pos()
-                self._model.geom_pos[body_id][:2] = pos
-                radius = self._random.uniform(0.02, 0.03)
-                half_height = self._random.uniform(0.0625, 0.1075)
-                self._model.geom_size[body_id] = [radius, half_height, 0]
-                self._model.geom_pos[body_id][2] = half_height
-                self._model.geom_rgba[body_id] = [0.0, 0.0, 0.0, 1.0]
+                mocap_id = self._model.body_mocapid[body_id]
+                if mocap_id != -1:
+                    # Mocap pos is global. We set x,y. z=0 from XML pos?
+                    # The body pos in XML is "0.4 0.1 0.2".
+                    # If we set mocap_pos, it OVERRIDES everything.
+                    # We want z=0.2 (half height?) NO, in randomization logic we set pos[2]=half_height.
+                    # But if we move the BODY, the GEOM pos is relative.
+                    # Geom pos should be 0 0 0 relative to body.
+                    # So we set Body Mocap Pos to [x, y, half_height].
+                    self._data.mocap_pos[mocap_id][:2] = pos
+                    self._data.mocap_pos[mocap_id][2] = half_height # Center Z
+
+            # Resize Geoms (Collision & Visual)
+            # They are now inside the body, so their pos should be 0.
+            # But the randomization logic previously set geom_pos[2] = half_height.
+            # If body is at Z=half_height, then geom should be at Z=0.
+
+            # We need to find geoms inside the body.
+            # Or just find them by name as before.
+            name_col = f"pillar_cyl_{i}"
+            col_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name_col)
+            if col_id != -1:
+                # Collision geom is BOX: [radius, radius, half_height]
+                self._model.geom_size[col_id] = [radius, radius, half_height]
+                self._model.geom_pos[col_id] = [0, 0, 0] # Centered in body
+
+            name_vis = f"pillar_cyl_{i}_vis"
+            vis_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name_vis)
+            if vis_id != -1:
+                # Visual geom is CYLINDER: [radius, half_height, 0]
+                self._model.geom_size[vis_id] = [radius, half_height, 0]
+                self._model.geom_pos[vis_id] = [0, 0, 0]
 
         for i in range(1, 3):
-            name = f"pillar_box_{i}"
-            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
+            pos = get_safe_pos()
+            hx = self._random.uniform(0.02, 0.03)
+            hy = self._random.uniform(0.02, 0.03)
+            hz = self._random.uniform(0.1025, 0.1675)
+
+            # Move Mocap Body
+            body_name = f"pillar_box_{i}_body"
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, body_name)
             if body_id != -1:
-                pos = get_safe_pos()
-                self._model.geom_pos[body_id][:2] = pos
-                hx = self._random.uniform(0.02, 0.03)
-                hy = self._random.uniform(0.02, 0.03)
-                hz = self._random.uniform(0.1025, 0.1675)
-                self._model.geom_size[body_id] = [hx, hy, hz]
-                self._model.geom_pos[body_id][2] = hz
-                self._model.geom_rgba[body_id] = [0.0, 0.0, 0.0, 1.0]
+                mocap_id = self._model.body_mocapid[body_id]
+                if mocap_id != -1:
+                    self._data.mocap_pos[mocap_id][:2] = pos
+                    self._data.mocap_pos[mocap_id][2] = hz
+
+            # Resize Geoms
+            name_col = f"pillar_box_{i}"
+            col_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name_col)
+            if col_id != -1:
+                self._model.geom_size[col_id] = [hx, hy, hz]
+                self._model.geom_pos[col_id] = [0, 0, 0]
+
+            name_vis = f"pillar_box_{i}_vis"
+            vis_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name_vis)
+            if vis_id != -1:
+                self._model.geom_size[vis_id] = [hx, hy, hz]
+                self._model.geom_pos[vis_id] = [0, 0, 0]
 
     def _start_monitor_server(self):
         """Start a background HTTP Server to allow dashboard to read data"""
@@ -553,7 +598,6 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
             g2 = contact.geom2
 
             # 檢查是否涉及柱子 (Pillar)
-            # 這裡你原本已經優化過用了 ID list，很好
             is_g1_pillar = g1 in self._pillar_geom_ids
             is_g2_pillar = g2 in self._pillar_geom_ids
 
@@ -566,27 +610,6 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                 if other_id not in self._safe_geom_ids:
                     return True
                     
-        return False
-        for i in range(self._data.ncon):
-            contact = self._data.contact[i]
-
-            # Check if either geom is a pillar by ID
-            g1 = contact.geom1
-            g2 = contact.geom2
-
-            is_g1_pillar = g1 in self._pillar_geom_ids
-            is_g2_pillar = g2 in self._pillar_geom_ids
-
-            if is_g1_pillar or is_g2_pillar:
-                # If pillar is involved, check what it hit
-                other_id = g2 if is_g1_pillar else g1
-                other_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, other_id)
-
-                # If hitting allowed objects, ignore. Allowed: block, floor, target_geom, target
-                # Note: "target" might be body name? Collision uses geom names.
-                # Assuming "block" is geom name.
-                if other_name not in ["block", "floor", "target_geom", "target"]:
-                    return True
         return False
 
     def _compute_success(self, gripper_val):
