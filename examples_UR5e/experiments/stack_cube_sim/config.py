@@ -270,6 +270,13 @@ class KeyBoardIntervention2(gym.ActionWrapper):
                 else:
                     self.gripper_state = 'open'
             
+            # Fix: Ensure returned action matches env expected shape if not intervened
+            if self.env.action_space.shape[0] == 4 and action.shape[0] > 4:
+                # Truncate to [x, y, z, grasp]
+                # We assume action is [x, y, z, ..., grasp]
+                new_action = np.concatenate([action[:3], action[-1:]])
+                return new_action, False
+
             return action, False
 
     def step(self, action):
