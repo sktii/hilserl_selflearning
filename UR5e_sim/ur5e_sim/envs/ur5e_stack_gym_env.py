@@ -117,11 +117,28 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
         # Pre-cache pillar IDs for fast collision checking
         self._pillar_geom_ids = []
+        self._pillar_bodies = []
+
+        # Cache pillar body IDs for observation
         for i in range(1, 3):
+            # Cylinders
+            body_name = f"pillar_{i}_body"
+            bid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+            if bid != -1: self._pillar_bodies.append(bid)
+
             id_cyl = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, f"pillar_cyl_{i}")
             if id_cyl != -1: self._pillar_geom_ids.append(id_cyl)
+
+            # Boxes
+            body_name_box = f"pillar_box_{i}_body"
+            bid_box = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, body_name_box)
+            if bid_box != -1: self._pillar_bodies.append(bid_box)
+
             id_box = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, f"pillar_box_{i}")
             if id_box != -1: self._pillar_geom_ids.append(id_box)
+
+        # 4 obstacles * 7 features (1 exists? + 3 pos + 3 size)
+        obs_feat_dim = 4 * 7
 
         if self.image_obs:
             self.observation_space = gymnasium_spaces.Dict(
@@ -136,6 +153,7 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                             "tcp_force": gymnasium_spaces.Box(-np.inf, np.inf, shape=(3,), dtype=np.float32),
                             "tcp_torque": gymnasium_spaces.Box(-np.inf, np.inf, shape=(3,), dtype=np.float32),
                             "target_cube_pos": gymnasium_spaces.Box(-np.inf, np.inf, shape=(3,), dtype=np.float32),
+                            "obstacle_state": gymnasium_spaces.Box(-np.inf, np.inf, shape=(obs_feat_dim,), dtype=np.float32),
                         }
                     ),
                     "images": gymnasium_spaces.Dict(
@@ -163,6 +181,9 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                             ),
                             "target_cube_pos": gymnasium_spaces.Box(
                                 -np.inf, np.inf, shape=(3,), dtype=np.float32
+                            ),
+                            "obstacle_state": gymnasium_spaces.Box(
+                                -np.inf, np.inf, shape=(obs_feat_dim,), dtype=np.float32
                             ),
                         }
                     ),
@@ -566,9 +587,11 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         
         collision = self._check_collision()
         if collision:
-            rew = -5.0
+            rew = -10.0
             success = False
             self.success_counter = 0
+            terminated = True # Terminate on collision
+            print(">>> Collision! Terminating episode.")
             return obs, rew, terminated, False, {"succeed": success, "grasp_penalty": grasp_penalty}
 
         instant_success = self._compute_success(gripper_val)
@@ -581,11 +604,13 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
 
         if success:
             print(f'success!')
-        else:
-            pass
+
         terminated = terminated or success
+
+        # Add success bonus to prevent reward hacking (hovering without finishing)
         if success:
             rew += 100.0
+
         return obs, rew, terminated, False, {"succeed": success, "grasp_penalty": grasp_penalty}
 
     def _check_collision(self):
@@ -663,34 +688,68 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
         target_pos = self._data.body("target_cube").xpos.astype(np.float32)
         obs["state"]["target_cube_pos"] = target_pos
 
+        # Compute Obstacle State
+        # 4 obstacles, 7 features each [exists, x, y, z, sx, sy, sz]
+        obs_state = []
+        for body_id in self._pillar_bodies:
+            # Existence (1.0)
+            feats = [1.0]
+            # Position (global from xpos)
+            pos = self._data.xpos[body_id]
+            feats.extend(pos)
+
+            # Size? We need to find the geom size.
+            # We cached geom_ids in _pillar_geom_ids, but need mapping body->geom
+            # Simplified: just append 0s for size or try to find it.
+            # Or better, just use position + radius.
+            # But let's try to get size.
+            # Since we have randomized them, the geom size in model is updated.
+            # But which geom corresponds to this body?
+            # Assuming 1-to-1 mapping in order.
+
+            # Note: _pillar_geom_ids has [cyl_1, box_1, cyl_2, box_2] (order depends on loops)
+            # In init:
+            # Cyls loop: adds cyl geom.
+            # Box loop: adds box geom.
+            # In my new init code above: I loop and add body then geom.
+            # So _pillar_bodies and _pillar_geom_ids should be aligned.
+
+            idx = self._pillar_bodies.index(body_id)
+            if idx < len(self._pillar_geom_ids):
+                gid = self._pillar_geom_ids[idx]
+                size = self._model.geom_size[gid]
+                feats.extend(size)
+            else:
+                feats.extend([0, 0, 0])
+
+            obs_state.extend(feats)
+
+        # Pad if less than 4 obstacles (though we know there are 4)
+        while len(obs_state) < 4 * 7:
+            obs_state.extend([0.0] * 7)
+
+        obs_state_arr = np.array(obs_state, dtype=np.float32)
+        obs["state"]["obstacle_state"] = obs_state_arr
+
         if self.image_obs:
             obs["images"] = {}
             rendered = self.render()
             if rendered:
-                 # Map available frames to keys. We only have left/right in camera_id list for now.
-                 # If config asks for 'wrist', we might miss it or need to map one of these.
-                 # Current camera_id has 2 entries.
                  if len(rendered) >= 1: obs["images"]["left"] = rendered[0]
                  else: obs["images"]["left"] = np.zeros((128, 128, 3), dtype=np.uint8)
 
                  if len(rendered) >= 2: obs["images"]["right"] = rendered[1]
                  else: obs["images"]["right"] = np.zeros((128, 128, 3), dtype=np.uint8)
 
-                 # Placeholder for wrist if requested but not available
                  obs["images"]["wrist"] = np.zeros((128, 128, 3), dtype=np.uint8)
             else:
                  obs["images"]["left"] = np.zeros((128, 128, 3), dtype=np.uint8)
                  obs["images"]["wrist"] = np.zeros((128, 128, 3), dtype=np.uint8)
                  obs["images"]["right"] = np.zeros((128, 128, 3), dtype=np.uint8)
-
         else:
             block_pos = self._data.sensor("block_pos").data.astype(np.float32)
             obs["state"]["block_pos"] = block_pos
 
-
-        gripper_pos = np.array(
-            [self._data.ctrl[self._gripper_ctrl_id] / 255], dtype=np.float32
-        )
 
         if self.image_obs:
             site_mat = self._data.site_xmat[self._pinch_site_id].reshape(9)
@@ -719,56 +778,77 @@ class UR5eStackCubeGymEnv(MujocoGymEnv, gymnasium.Env):
                 "gripper_pose": gripper_pos,
                 "tcp_force": tcp_force,
                 "tcp_torque": tcp_torque,
-                "target_cube_pos": target_pos
+                "target_cube_pos": target_pos,
+                "obstacle_state": obs_state_arr
             }
 
         return obs
 
     def _compute_reward(self) -> float:
+        # State
         block_pos = self._data.sensor("block_pos").data
         tcp_pos = self._data.sensor("2f85/pinch_pos").data
         target_pos = self._data.body("target_cube").xpos
+        gripper_width = self._data.ctrl[self._gripper_ctrl_id] / 255.0 # 0=Open, 1=Close
 
-        dist_to_block = np.linalg.norm(block_pos - tcp_pos)
-        r_reach = (1 - np.tanh(5.0 * dist_to_block))
+        # Distances
+        dist_tcp_block = np.linalg.norm(block_pos - tcp_pos)
+        dist_block_target = np.linalg.norm(block_pos[:2] - target_pos[:2]) # XY distance
+        dist_z_target = np.abs(block_pos[2] - (target_pos[2] + self._target_cube_z + self._block_z))
 
-        is_grasped = dist_to_block < 0.03
+        # --- Stage 1: Reach ---
+        # Encourage getting hand close to block
+        r_reach = 1 - np.tanh(5.0 * dist_tcp_block)
+
+        # --- Stage 2: Grasp ---
+        # If close to block and gripper is closed
+        is_grasped = dist_tcp_block < 0.04 and gripper_width > 0.6
+        r_grasp = 1.0 if is_grasped else 0.0
+
+        # --- Stage 3: Lift ---
+        # If grasped, encourage lifting above threshold
         r_lift = 0.0
-        if is_grasped or block_pos[2] > self._z_init + 0.01:
-             r_lift = (block_pos[2] - self._z_init) / (self._z_success - self._z_init)
-             r_lift = np.clip(r_lift, 0, 1)
+        if is_grasped:
+            # Lift target: e.g. 0.1m above table
+            lift_target = self._z_init + 0.15
+            z_score = (block_pos[2] - self._z_init) / 0.15
+            r_lift = np.clip(z_score, 0, 1)
 
-        dist_block_to_target = np.linalg.norm(block_pos[:2] - target_pos[:2])
+        # --- Stage 4: Place ---
+        # If lifted high enough, move to target
         r_place = 0.0
-        if block_pos[2] > self._z_init + 0.02:
-             r_place = (1 - np.tanh(5.0 * dist_block_to_target))
+        is_lifted = block_pos[2] > self._z_init + 0.05
+        if is_lifted and is_grasped:
+            r_place = 1 - np.tanh(3.0 * dist_block_target)
 
+        # --- Stage 5: Stack (Alignment) ---
         r_stack = 0.0
-        target_z = target_pos[2] + self._target_cube_z + self._block_z
-        if r_place > 0.95:
-            dist_z = np.abs(block_pos[2] - target_z)
-            r_stack = (1 - np.tanh(10.0 * dist_z))
+        if r_place > 0.8: # Close to target XY
+            # Encourage matching Z
+            r_stack = 1 - np.tanh(5.0 * dist_z_target)
 
-        rew = 0.5 * r_reach + 0.3 * r_lift + 0.3 * r_place + 0.3 * r_stack
+        # --- Obstacle Penalty ---
+        obs_penalty = 0.0
+        # Check distance to all pillars
+        for body_id in self._pillar_bodies:
+            p_pos = self._data.xpos[body_id]
+            # Simple Sphere distance check
+            d = np.linalg.norm(tcp_pos - p_pos)
+            # If closer than safety margin (e.g. 0.1m)
+            if d < 0.12:
+                obs_penalty -= 2.0 * (0.12 - d) # Linear penalty
 
-        if not self._stage_rewards["touched"]:
-            if dist_to_block < 0.03:
-                rew += 10.0
-                self._stage_rewards["touched"] = True
-                print(">>> Reward: Touched Block (+10)")
+        # Total Reward
+        # Weighted sum to create a curriculum
+        # 1. Reach (always active)
+        # 2. Lift (needs grasp)
+        # 3. Place (needs lift)
+        # 4. Stack (needs place)
 
-        if not self._stage_rewards["lifted"]:
-            if block_pos[2] > self._z_init + 0.03:
-                rew += 25.0
-                self._stage_rewards["lifted"] = True
-                print(">>> Reward: Lifted Block (+25)")
+        rew = r_reach + r_grasp + r_lift + r_place + r_stack + obs_penalty
 
-        if not self._stage_rewards["hovered"]:
-            if self._stage_rewards["lifted"]:
-                dist_xy_to_target = np.linalg.norm(block_pos[:2] - target_pos[:2])
-                if dist_xy_to_target < 0.05:
-                    rew += 25.0
-                    self._stage_rewards["hovered"] = True
-                    print(">>> Reward: Hovered above Goal (+25)")
+        # Bonus for success
+        # if self.success_counter > 0:
+        #    rew += 10.0
 
         return rew
